@@ -83,6 +83,9 @@ end component;
     signal end_of_msg_q, end_of_msg_d         : std_logic;
     signal addr_rb_q, addr_rb_d               : std_logic_vector(31 downto 0);
     
+    -- indique combien de mot sont encor à lire pour itérer sur le RB
+    signal mot_restant_q, mot_restant_d       : std_logic_vector(15 downto 0);
+    
 begin
     U1 : fifo_tx port map(
         clk     =>  clk,
@@ -113,6 +116,7 @@ begin
                 size_rb_q          <= size_rb_d ;
                 read_q             <= read_d ;
                 write_q            <= write_d ;
+                mot_restant_q      <= mot_restant_d;
             end if ;
         end if ;
     end process sync ;
@@ -120,7 +124,8 @@ begin
 
 
 -----------------------------------------------------------------------------------------------------------
-    comb : process(etat_q, Tap_Number, actual_size_q, size_max_q, end_of_msg_q, addr_rb_q, addr_ram_q, size_rb_q, read_q, write_q, 
+    comb : process(etat_q, Tap_Number, actual_size_q, size_max_q, end_of_msg_q, 
+                        addr_rb_q, addr_ram_q, size_rb_q, read_q, write_q, mot_restant_q,
                    CPU_we, CPU_addr, RAM_DATA, fifo_empty, fifo_full)
                    
         variable masque : std_logic_vector(31 downto 0);
@@ -135,6 +140,7 @@ begin
         addr_ram_d              <= addr_ram_q ;
         size_rb_d               <= size_rb_q ;
         read_d                  <= read_q ;
+        mot_restant_d           <= mot_restant_q
         
         fifo_re                 <= '0' ;
         fifo_we                 <= '0' ;
@@ -162,6 +168,8 @@ begin
                 etat_d <= S_wait_instr;
                 
             when S_wait_instr =>
+                -- On initialise le nombre de mots restant : la prochaine étape consiste à lire le RB
+                mot_restant_d <= (others => '0');
                 -- On ne change d'état que si le dernier message reçu n'est pas le prochain buffer vide
                 -- Il faut aussi que la fifo soit vide
                 if(write_q /= read_q and fifo_empty = '1') then
@@ -182,6 +190,8 @@ begin
                         size_max_d     <= RAM_DATA(15 downto 0);
                         actual_size_d  <= RAM_DATA(30 downto 16);
                         end_of_msg_d   <= RAM_DATA(31);
+                        -- On en profite pour initialiser le nomre de mot restant à actual_size
+                        mot_restant_d  <= '0' & RAM_DATA(30 downto 16);
                         -- On suppose ici que size_rb = 8
                         masque := (0 => '1', 1 => '1', 2 => '1', 3 => '1', others => '0');
                         read_d <= conv_std_logic_vector(unsigned(read_q) + 4,32) and masque;
@@ -217,7 +227,13 @@ begin
                     fifo_we <= '1';
                     fifo_in <= RAM_DATA;
                     Next_Tap_Number <= "00";
-                    etat_d  <= S_rec_data;
+                    -- Chaque fois qu'on écrit dans la fifo le nombre de mots restant diminue
+                    mot_restant_d <= conv_std_logic_vector(unsigned(mot_restant_q) - 1, 16);
+                    if(mot_restant_q = 1) then
+                        etat_d <= S_end_data;
+                    else
+                        etat_d  <= S_rec_data;
+                    end if;
                 end if;
 
             when S_rec_data =>
@@ -230,14 +246,8 @@ begin
                 end if;
                 
             when S_end_data =>
-                -- Si le message est finit on attend la prochaine instruction
-                -- Sinon on prend le message suivant
-                if(end_of_msg_q = '0') then
-                    etat_d <= S_wait_instr;
-                else
-                    etat_d <= S_read_rb;
-                end if; 
-                
+                -- Pour le moment cet état ne sert à rien
+                etat_d <= S_wait_instr;
         end case;
         
     end process comb;
