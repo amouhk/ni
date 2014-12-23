@@ -35,8 +35,8 @@ use IEEE.std_logic_arith.all;
 entity bench_rx is
 end bench_rx;
 
-architecture Behavioral of bench_ni is
-    component ni_rx
+architecture Behavioral of bench_rx is
+    component rx
         port (
             CLK     : in  std_logic;
             RESET   : in std_logic;
@@ -96,7 +96,7 @@ architecture Behavioral of bench_ni is
     constant clk_period : time := 5 ns;
     
 begin
-tb_ram_500: RAM
+u_ram_500: RAM
     generic map (MEM_SIZE   => 500)
     port map(
         CLK   => CLK, 
@@ -116,7 +116,7 @@ tb_ram_500: RAM
         
     );
 
-tb_ni: ni_rx
+u_rx: rx
     port map (
         CLK => CLK,
         RESET => RESET,

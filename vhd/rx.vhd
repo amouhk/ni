@@ -31,7 +31,7 @@ use IEEE.NUMERIC_STD.ALL;
 --library UNISIM;
 --use UNISIM.VComponents.all;
 
-entity ni_rx is
+entity rx is
     Port ( 
         CLK     : in  std_logic;
         RESET   : in std_logic;
@@ -47,9 +47,9 @@ entity ni_rx is
         M_IP_ADDR : out std_logic_vector(31 downto 0);
         M_IP_DATA : out std_logic_vector(31 downto 0)
     );
-end ni_rx;
+end rx;
 
-architecture Behavioral of ni_rx is
+architecture Behavioral of rx is
 
     component fifo_rx 
         PORT (
@@ -98,7 +98,7 @@ P_SYNC: process(CLK, RESET)
 begin
     if RESET = '1' then 
         Etat_q          <= S_init;
-        reg_read_q      <= (others => '0') ;
+        reg_read_q      <= (others => '1') ;
         reg_write_q     <= (others => '0') ;
         --data_addr_q     <= (others => '0') ;
 
@@ -156,13 +156,15 @@ begin
 
         when S_read_fifo =>
             --Lecture de la fifo
-            rd_en <= '1';  
-            etat_d <= S_load_ram;
+            -- Avant, on verifie s'il y a de la place dans la RAM (buffers rx)
+            if reg_write_q /= reg_read_q then
+                rd_en <= '1';  
+                etat_d <= S_load_ram;
+            end if;
             
         when S_load_ram =>
             --Ecrire les donnes de la fifo dans la ram local
-            
-            -- and addr_offset_q /= 64
+            -- and addr_offset_q /= 64 ???
             if empty = '0' then 
                 rd_en <= '1';
                 M_IP_WE   <= '1';
@@ -174,6 +176,8 @@ begin
                 M_IP_WE   <= '1';
                 M_IP_ADDR <= std_logic_vector(addr_offset_q + unsigned(data_addr_q));
                 
+                -- On avance le Ring Buffer Write de 8(Prochaine barrete libre);
+                reg_write_d <= std_logic_vector(unsigned(reg_write_q) + 8);
                 etat_d <= S_init;
             end if;
             
