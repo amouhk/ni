@@ -46,7 +46,11 @@ architecture Behavioral of bench_tx is
         RAM_DATA     : in STD_LOGIC_VECTOR (31 downto 0);
         RAM_WE       : out STD_LOGIC;
         RAM_RE       : out STD_LOGIC;
-        RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0)
+        RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0);
+        NI_ack       : in STD_LOGIC;
+        NI_ready     : out STD_LOGIC;
+        NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
+        NI_we        : out STD_LOGIC
     );
     end component;
     
@@ -66,7 +70,7 @@ architecture Behavioral of bench_tx is
     );
     end component;
     
-    --signaux généré par le bench
+    --signaux genere par le bench
     signal clk          : std_logic := '0';
     signal rst          : std_logic := '0';
     signal CPU_addr     : std_logic_vector(31 downto 0) := (others => '0');
@@ -86,6 +90,12 @@ architecture Behavioral of bench_tx is
     signal re_ram   : std_logic;
     signal we_ram   : std_logic;
     
+    -- signaux inutils qui simuleront le NI_rx
+    signal ack_ni       : STD_LOGIC := '0';
+    signal ready_ni     : STD_LOGIC;
+    signal data_ni      : STD_LOGIC_VECTOR (31 downto 0);
+    signal we_ni        : STD_LOGIC;
+    
     constant clk_demi_period : time := 5 ns;
     constant clk_period : time := 10 ns;
     
@@ -99,7 +109,11 @@ begin
         RAM_DATA    => data_ram,
         RAM_WE      => we_ram,
         RAM_RE      => re_ram,
-        RAM_ADDR    => addr_ram
+        RAM_ADDR    => addr_ram,
+        NI_ack      => ack_ni,
+        NI_ready    => ready_ni,
+        NI_data     => data_ni,
+        NI_we       => we_ni
     );
     
     u2 : MEM_RAM port map(
@@ -120,18 +134,15 @@ begin
     CLK <= not(CLK) after clk_demi_period; -- periode 10 ns
     Rst <= '1', '0' after 50 ns;
 
-    -- Processus qui remplit la mémoire
+-----------------------------------------------------------------------------------------------------------
+    -- Processus qui remplit la memoire
     fill_ram : process
     begin
         wait for 100 ns;
         -- On remplit le RB
         for i in 0 to 7 loop
             we_ram_B <= '1';
-            if(i=0 or i=1) then
-                din_ram_B <= X"80100010"; -- size = size_max = 16, eom = '0'
-            else
-                din_ram_B <= X"00000010"; -- pas de message
-            end if;
+            din_ram_B <= X"81000100"; -- size = size_max = 256, eom = '1'
             addr_ram_B <= conv_std_logic_vector(8*i,32);
             wait for clk_period;
             
@@ -139,7 +150,7 @@ begin
             wait for clk_period;
             
             we_ram_B <= '1';
-            din_ram_B <= conv_std_logic_vector(128 + (64 * i), 32);
+            din_ram_B <= conv_std_logic_vector(128 + (1024 * i), 32);
             addr_ram_B <= conv_std_logic_vector(8*i + 4, 32);
             wait for clk_period;
             
@@ -147,37 +158,50 @@ begin
             wait for clk_period;
         end loop;
         
-        -- On remplit la mémoire : pour le premier mot on met 01 01 01 01, le deuxième 02 02 02 02, etc ...
-        -- On remplit les deux premières "barrétes" de la mémoire
+        -- On remplit la memoire : pour le premier mot on met 0001 0001, le deuxième 0002 0002, etc ...
+        -- On remplit les deux premières "barretes" de la memoire
         for i in 0 to 1 loop
-            -- Chaque "barrétes" contenent 16 mots de 4 octets
-            for j in 0 to 15 loop
+            -- Chaque "barretes" contenent 256 mots de 4 octets
+            for j in 0 to 255 loop
                 we_ram_B <= '1';
-                din_ram_B <= conv_std_logic_vector(i*16 + j, 8) & conv_std_logic_vector(i*16 + j, 8) & 
-                             conv_std_logic_vector(i*16 + j, 8) & conv_std_logic_vector(i*16 + j, 8);
-                addr_ram_B <= conv_std_logic_vector(128 + 64*i + 4*j, 32);
+                din_ram_B <= conv_std_logic_vector(i*256 + j, 16) & conv_std_logic_vector(i*256 + j, 16) ;
+                addr_ram_B <= conv_std_logic_vector(128 + 1024*i + 4*j, 32);
                 wait for clk_period;
                 
                 we_ram_B <= '0';
                 wait for clk_period;
             end loop;
         end loop;
-        -- On prévient les autres processus que la ram est remplie : on peut commençer la simulation
+        -- On previent les autres processus que la ram est remplie : on peut commençer la simulation
         ram_fill <= '1';
-        -- On arréte le processus
+        -- On arrete le processus
         wait on rst;
     end process;
-    
+
+
+-----------------------------------------------------------------------------------------------------------
     -- Processus qui lance la simu : on effectue l'action du CPU
     start : process
     begin
         wait on ram_fill;
         CPU_we <= '1';
-        CPU_addr <= X"00000010";
+        CPU_addr <= X"00000040";
         wait for clk_period;
         CPU_we <= '0';
-        -- On arréte le processus
+        -- On arrete le processus
         wait on rst;
+    end process;
+
+
+-----------------------------------------------------------------------------------------------------------
+    -- Processus qui simule l'autre NI
+    ni_rx : process
+    begin
+        wait on ready_ni;
+        wait for 4*clk_period;
+        ack_ni <= '1';
+        wait for clk_period;
+        ack_ni <= '0';
     end process;
     
 end Behavioral;
