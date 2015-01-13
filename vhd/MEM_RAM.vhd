@@ -56,7 +56,7 @@ end MEM_RAM;
 
 architecture Behavioral of MEM_RAM is
 
-	type   type_mem_im is array(0 to 1295) of std_logic_vector(7 downto 0);
+	type   type_mem_im is array(0 to 9000) of std_logic_vector(7 downto 0);
    signal mem_im : type_mem_im;
 
 begin
@@ -64,11 +64,11 @@ begin
     begin
 
         if RESET = '1' then
-            for i in 0 to 1295 loop
+            for i in 0 to 9000 loop
                 mem_im(i) <= X"00";
             end loop;
         else
-            if CLK'event and CLK = '0' then
+            if CLK'event and CLK = '1' then
                 -- écriture
                 if we = '1' then 
                     mem_im(conv_integer(addr))     <= din(31 downto 24);
