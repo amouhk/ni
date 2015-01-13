@@ -100,7 +100,7 @@ end process;
 --    wait until full = '0';
 --    --wait for 20 ns;
 --    wr_en <= '1';
---    for i in 1 to 9 loop
+--    for i in 1 to 17 loop
 --        din   <= std_logic_vector(to_unsigned(i, 32));
 --        wait for 20 ns;
 --    end loop;
@@ -113,7 +113,7 @@ end process;
 --    wait until wr_en'event and wr_en = '0';
 --    wait for 50 ns;
 --    rd_en <= '1';
---    for i in 1 to 9 loop
+--    for i in 1 to 17 loop
 --        wait for 20 ns;
 --    end loop; 
 --    rd_en <= '0';    
