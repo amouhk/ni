@@ -83,7 +83,7 @@ architecture Behavioral of bench_tx is
     signal re_ram_B     : std_logic := '0';
     signal we_ram_B     : std_logic := '0';
     signal ram_fill     : std_logic := '0';
-
+    
     -- jonction entre les composants
     signal addr_ram : std_logic_vector(31 downto 0);
     signal data_ram : std_logic_vector(31 downto 0);
@@ -142,7 +142,17 @@ begin
         -- On remplit le RB
         for i in 0 to 7 loop
             we_ram_B <= '1';
-            din_ram_B <= X"81000100"; -- size = size_max = 256, eom = '1'
+            -- On fait plusieurs tests different histoir de couvrir tout les cas
+            case i is
+                when 2 =>
+                    din_ram_B <= X"802D0100"; -- size = 45, size_max = 256, eom = '1'
+                when 4 =>
+                    din_ram_B <= X"01000100"; -- size = size_max = 256, eom = '0'
+                when 5 =>
+                    din_ram_B <= X"808E0100"; -- size = 142, size_max = 256, eom = '1'
+                when others =>
+                    din_ram_B <= X"81000100"; -- size = size_max = 256, eom = '1'
+            end case;
             addr_ram_B <= conv_std_logic_vector(8*i,32);
             wait for clk_period;
             
@@ -158,13 +168,13 @@ begin
             wait for clk_period;
         end loop;
         
-        -- On remplit la memoire : pour le premier mot on met 0001 0001, le deuxième 0002 0002, etc ...
-        -- On remplit les deux premières "barretes" de la memoire
-        for i in 0 to 1 loop
+        -- On remplit la memoire : pour le premier mot on met 0000 0001, le deuxième 0000 0002, etc ...
+        -- On remplit les huits "barretes" de la memoire
+        for i in 0 to 7 loop
             -- Chaque "barretes" contenent 256 mots de 4 octets
             for j in 0 to 255 loop
                 we_ram_B <= '1';
-                din_ram_B <= conv_std_logic_vector(i*256 + j, 16) & conv_std_logic_vector(i*256 + j, 16) ;
+                din_ram_B <= conv_std_logic_vector(i*256 + j, 32);
                 addr_ram_B <= conv_std_logic_vector(128 + 1024*i + 4*j, 32);
                 wait for clk_period;
                 
@@ -184,8 +194,10 @@ begin
     start : process
     begin
         wait on ram_fill;
+        -- On fait bugger le NI en lui donnant une valeur que le CPU n'est pas cense donner
+        -- De cette maniere le NI transmet indéfiniment les donnees
         CPU_we <= '1';
-        CPU_addr <= X"00000040";
+        CPU_addr <= X"00000001";
         wait for clk_period;
         CPU_we <= '0';
         -- On arrete le processus

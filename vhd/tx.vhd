@@ -46,7 +46,8 @@ entity tx is
            NI_ack       : in STD_LOGIC;
            NI_ready     : out STD_LOGIC;
            NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
-           NI_we        : out STD_LOGIC
+           NI_we        : out STD_LOGIC;
+           NI_eom       : out STD_LOGIC
            );
 end tx;
 
@@ -67,8 +68,8 @@ end component;
     type ETAT is (S_init, S_wait_instr, S_read_rb, S_write_fifo, S_rec_data, S_wait_ni, S_send_data, S_end_data);
     
     signal etat_q, etat_d                     : ETAT;
-    signal Tap_Number, Next_Tap_Number        : std_logic_vector(1 downto 0); -- On code 4 étapes différentes
-    -- Signaux propre à la fifo
+    signal Tap_Number, Next_Tap_Number        : std_logic_vector(1 downto 0); -- On code 4 etapes differentes
+    -- Signaux propre a la fifo
     signal fifo_in, fifo_out                  : std_logic_vector(31 downto 0);
     signal fifo_we, fifo_re                   : std_logic;
     signal fifo_empty, fifo_full              : std_logic;
@@ -79,13 +80,13 @@ end component;
     signal read_q, read_d                     : std_logic_vector(31 downto 0);
     signal write_q, write_d                   : std_logic_vector(31 downto 0);
     
-    -- Signaux permettant de stocker les données du RB
+    -- Signaux permettant de stocker les donnees du RB
     signal actual_size_q, actual_size_d       : std_logic_vector(14 downto 0);
     signal size_max_q, size_max_d             : std_logic_vector(15 downto 0);
     signal end_of_msg_q, end_of_msg_d         : std_logic;
     signal addr_ram_q, addr_ram_d             : std_logic_vector(31 downto 0);
     
-    -- indique combien de mot sont encor à lire pour itérer sur le RB
+    -- indique combien de mot sont encor a lire pour iterer sur le RB
     signal nb_mot_restant_q, nb_mot_restant_d       : std_logic_vector(15 downto 0);
     
 begin
@@ -132,7 +133,7 @@ begin
                    
         variable masque : std_logic_vector(31 downto 0);
     begin
-    -- initialisation des signaux en entré du process combinatoire
+    -- initialisation des signaux en entre du process combinatoire
         Next_Tap_Number         <= Tap_Number;
         etat_d                  <= etat_q ;
         actual_size_d           <= actual_size_q ;
@@ -153,8 +154,9 @@ begin
         NI_ready                <= '0' ;
         NI_data                 <= (others => '0');
         NI_we                   <= '0' ;
+        NI_eom                  <= '0';
         
-        -- On gère l'entrée du CPU à tout moment
+        -- On gere l'entree du CPU a tout moment
         if(CPU_we = '1') then
             write_d <= CPU_addr;
         else
@@ -163,19 +165,27 @@ begin
         
         case etat_q is
             when S_init =>
+                -- Initialisation de tout les registres
+                actual_size_d           <= (others => '0') ;
+                size_max_d              <= (others => '0') ;
+                end_of_msg_d            <= '0' ;
+                addr_ram_d              <= (others => '0') ;
+                size_rb_d               <= (others => '0') ;
+                nb_mot_restant_d        <= (others => '0') ;
+                
                 -- On suppose que l'adresse de la ram = 0 et size_rb = 8
                 begin_ram_d <= (others => '0');
                 size_rb_d <= (3 => '1', others => '0');
-                -- Il faut initialiser read et write à begin_ram
+                -- Il faut initialiser read et write a begin_ram
                 read_d <= (others => '0');
                 write_d <= (others =>'0');
                 Next_Tap_Number <= "00";
                 etat_d <= S_wait_instr;
                 
             when S_wait_instr =>
-                -- On initialise le nombre de mots restant : la prochaine étape consiste à lire le RB
+                -- On initialise le nombre de mots restant : la prochaine etape consiste a lire le RB
                 nb_mot_restant_d <= (others => '0');
-                -- On ne change d'état que si le dernier message reçu n'est pas le prochain buffer vide
+                -- On ne change d'etat que si le dernier message reçu n'est pas le prochain buffer vide
                 -- Il faut aussi que la fifo soit vide
                 if(write_q /= read_q and fifo_empty = '1') then
                     etat_d <= S_read_rb;
@@ -191,11 +201,11 @@ begin
                         Next_Tap_Number <= "01";
                 
                     when "01"=> 
-                        -- On mémorise les données de size
+                        -- On memorise les donnees de size
                         size_max_d     <= RAM_DATA(15 downto 0);
                         actual_size_d  <= RAM_DATA(30 downto 16);
                         end_of_msg_d   <= RAM_DATA(31);
-                        -- On en profite pour initialiser le nomre de mot restant à actual_size
+                        -- On en profite pour initialiser le nomre de mot restant a actual_size
                         nb_mot_restant_d  <= '0' & RAM_DATA(30 downto 16);
                         -- On suppose ici que size_rb = 8
                         -- Sachant qu'un mot du rb fait 8 octets, on incemente modulo 8x16=128
@@ -211,7 +221,7 @@ begin
                         Next_Tap_Number <= "11";
                         
                     when "11" =>
-                        -- On mémorise l'adresse des données qui nous interraissent
+                        -- On memorise l'adresse des donnees qui nous interraissent
                         addr_ram_d <= RAM_DATA;
                         -- On suppose ici que size_rb = 8
                         -- Sachant qu'un mot du rb fait 8 octets, on incemente modulo 8x16=128
@@ -225,7 +235,7 @@ begin
                 
             when S_write_fifo =>
                 if(Tap_Number = "00") then
-                    -- On interroge la mémoire
+                    -- On interroge la memoire
                     RAM_RE <= '1';
                     RAM_ADDR  <= addr_ram_q;
                     Next_Tap_Number <= "01";
@@ -234,8 +244,12 @@ begin
                     fifo_we <= '1';
                     fifo_in <= RAM_DATA;
                     Next_Tap_Number <= "00";
-                    -- Chaque fois qu'on écrit dans la fifo le nombre de mots restant diminue
-                    nb_mot_restant_d <= conv_std_logic_vector(unsigned(nb_mot_restant_q) - 1, 16);
+                    -- Chaque fois qu'on ecrit dans la fifo le nombre de mots restant diminue
+                    -- Attention le nombre de mots restant ne doit pas etre negatif
+                    if(nb_mot_restant_q > 0) then
+                        nb_mot_restant_d <= conv_std_logic_vector(unsigned(nb_mot_restant_q) - 1, 16);
+                    end if;
+                    
                     if(nb_mot_restant_q = 0) then
                         etat_d <= S_wait_ni;
                     else
@@ -245,7 +259,7 @@ begin
 
             when S_rec_data =>
                 addr_ram_d <= conv_std_logic_vector(unsigned(addr_ram_q) + 4, 32);
-                -- La réception de data est considérer comme finit lorsque la fifo est pleine
+                -- La reception de data est considerer comme finit lorsque la fifo est pleine
                 if(fifo_full = '0') then
                     etat_d <= S_write_fifo;
                 else
@@ -268,6 +282,10 @@ begin
                     Next_Tap_Number <= "01";
                 else
                     NI_we   <= '1';
+                    -- On indique que le message est termine uniquement a l'envoit de la derniere trame
+                    if(nb_mot_restant_q = 0) then
+                        NI_eom <= end_of_msg_q;
+                    end if;
                 end if;
                 NI_data <= fifo_out;
                 
