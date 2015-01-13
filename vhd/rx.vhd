@@ -92,11 +92,11 @@ architecture Behavioral of rx is
     
     --constants
     constant MEM_BASE_ADDR      : std_logic_vector(31 downto 0) := (others => '0');
-    constant DESC_SIZE	        : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --8*(2*4)
+    constant DESC_SIZE	        : std_logic_vector(31 downto 0) := ( 3 => '1', others => '0');  --8*(2*4)
     constant BUFFER_SIZE	    : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --4*(16 or 256)
     constant DATA_BASE_ADDR	    : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --2*8*4
     constant DATA_MEM_SIZE      : std_logic_vector(31 downto 0) := ( 9 => '1', others => '0');  --4*(16 or 256)*8
-    constant mask               : std_logic_vector(16 downto 0) := (others=> '0');
+    --constant maskBuffer         : std_logic_vector(31 downto 0) := ( 0 => '1', 1 => '1', 2 => '1', 3 => '1', 4 => '1', 5 => '1', 6 => '1',others=> '0');
     
     
 begin
@@ -122,7 +122,7 @@ begin
         descript_size_q         <= DESC_SIZE;
         descript_read_q         <= MEM_BASE_ADDR;
         descript_write_q        <= MEM_BASE_ADDR;
-        temp_addr_q             <= (others => '0');
+        temp_addr_q             <= DATA_BASE_ADDR;
         size_q                  <= (others => '0');
 
      else 
@@ -206,12 +206,9 @@ begin
             if beg_msg_q = '1' then        
                 M_IP_WE     <= '1';
                 M_IP_ADDR   <= conv_std_logic_vector(unsigned(descript_base_addr_q) + unsigned(descript_write_q) + 4,32);
-                M_IP_DATA   <= conv_std_logic_vector(unsigned(DATA_BASE_ADDR) + unsigned(temp_addr_q), 32);
-                if unsigned(temp_addr_q) > unsigned(DATA_BASE_ADDR)+ unsigned(DATA_MEM_SIZE) then
-                    temp_addr_d <= DATA_BASE_ADDR; 
-                else
-                    temp_addr_d <= conv_std_logic_vector(unsigned(DATA_BASE_ADDR) + unsigned(temp_addr_q), 32); 
-                end if; 
+                M_IP_DATA   <= temp_addr_q;
+                temp_addr_d <= temp_addr_q;
+--                    temp_addr_d <= conv_std_logic_vector(unsigned(DATA_BASE_ADDR) + unsigned(temp_addr_q), 32); 
             else
                 beg_msg_d   <= '0';
             end if;
@@ -221,10 +218,10 @@ begin
         when S_read_fifo =>
             --Lecture de la fifo
             -- Avant, on verifie s'il y a de la place dans la RAM (buffers rx)
-            if descript_write_q /= (descript_read_q xor DESC_SIZE) then
+            if unsigned(descript_write_q) /= unsigned(descript_read_q xor DESC_SIZE) then
                 rd_en   <= '1';  
                 etat_d  <= S_load_msg;
-            end if;
+            end if;etat_d  <= S_load_msg;
             --irq
                         
        when S_load_msg =>
@@ -256,10 +253,10 @@ begin
                 M_IP_ADDR   <= conv_std_logic_vector(unsigned(descript_base_addr_q) + unsigned(descript_write_q),32);
                 M_IP_DATA   <= conv_std_logic_vector(unsigned(size_q), 32);
                 size_d      <= (others => '0');
-                descript_write_d    <= conv_std_logic_vector(unsigned(descript_write_q) + 8,32)and
+                descript_write_d    <= conv_std_logic_vector(unsigned(descript_write_q) + 1,32)and 
                                         conv_std_logic_vector((unsigned(DESC_SIZE & '0')-1),32);
                                         
-                temp_addr_d         <= temp_addr_q and conv_std_logic_vector((unsigned(DATA_MEM_SIZE & '0')-1),32);
+                temp_addr_d         <= temp_addr_q and conv_std_logic_vector((unsigned(DATA_MEM_SIZE)-1),32);
                 
                 etat_d <= S_wait_request;
         
