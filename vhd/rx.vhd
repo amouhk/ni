@@ -47,7 +47,7 @@ entity rx is
         M_IP_WE         : out std_logic;
         M_IP_RE         : out std_logic;
         M_IP_ADDR       : out std_logic_vector(31 downto 0);
-        M_IP_DATA       : out std_logic_vector(31 downto 0)
+        M_IP_DATA       : inout std_logic_vector(31 downto 0)
     );
 end rx;
 
@@ -66,7 +66,7 @@ architecture Behavioral of rx is
         );
     end component;
     
-    type   STATE is (S_wait_request, S_wait_full, S_load_addr, S_read_fifo, S_load_msg, S_load_size );
+    type   STATE is (S_init, S_wait_request, S_wait_fifo, S_read_rb, S_write_ram, S_end );
     signal Etat_d, Etat_q   : STATE;
     
     --registres du ring buffer write et read sont des offset
@@ -81,7 +81,11 @@ architecture Behavioral of rx is
     
     --descripteur de la ram
     signal size_d, size_q                       : std_logic_vector(31 downto 0);
-    signal temp_addr_d, temp_addr_q             : std_logic_vector(31 downto 0);
+    signal offset_d, offset_q             : std_logic_vector(31 downto 0);
+    
+    --
+    signal tap_number_d, tap_number_q           : std_logic;
+    signal offset_d, offset_q             : std_logic_vector(31 downto 0);
     
     --signaux irq TODO
     
@@ -96,7 +100,6 @@ architecture Behavioral of rx is
     constant BUFFER_SIZE	    : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --4*(16 or 256)
     constant DATA_BASE_ADDR	    : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --2*8*4
     constant DATA_MEM_SIZE      : std_logic_vector(31 downto 0) := ( 9 => '1', others => '0');  --4*(16 or 256)*8
-    --constant maskBuffer         : std_logic_vector(31 downto 0) := ( 0 => '1', 1 => '1', 2 => '1', 3 => '1', 4 => '1', 5 => '1', 6 => '1',others=> '0');
     
     
 begin
@@ -118,13 +121,6 @@ P_SYNC: process(CLK, RESET)
 begin
     if RESET = '1' then 
         Etat_q                  <= S_wait_request;
-        descript_base_addr_q    <= MEM_BASE_ADDR;
-        descript_size_q         <= DESC_SIZE;
-        descript_read_q         <= MEM_BASE_ADDR;
-        descript_write_q        <= MEM_BASE_ADDR;
-        temp_addr_q             <= DATA_BASE_ADDR;
-        size_q                  <= (others => '0');
-
      else 
         if CLK'event and CLK = '1' then
             Etat_q                  <= Etat_d;
@@ -135,9 +131,10 @@ begin
             descript_write_q        <= descript_write_d;
             
             end_msg_q               <= end_msg_d; 
+            tap_number_q            <= tap_number_d; 
             beg_msg_q               <= beg_msg_d; 
             size_q                  <= size_d;
-            temp_addr_q             <= temp_addr_d;
+            offset_q             <= offset_d;
         end if;
      end if;
 end process P_SYNC;
@@ -147,9 +144,11 @@ end process P_SYNC;
 --Process comb
 P_COMB: process(Etat_q, 
                 descript_read_q, descript_write_q, descript_size_q, descript_base_addr_q,
-                size_q, temp_addr_q, end_msg_q, beg_msg_q,
+                size_q, offset_q, end_msg_q, beg_msg_q,tap_number_q,
                 S_NOC_READY, S_NOC_WE, S_NOC_END_MSG,S_NOC_DATA,fifo_out, 
                 full, empty)
+                
+    variable maskBuffer : std_logic_vector(31 downto 0) := ( 0 => '1', 1 => '1', 2 => '1', 3 => '1', 4 => '1', 5 => '1', 6 => '1',others=> '0');
 begin
     --initalisation des siganux (affectation par defaut)
     Etat_d                  <= Etat_q;
@@ -157,88 +156,80 @@ begin
     descript_size_d         <= descript_size_q;
     descript_write_d        <= descript_write_q;
     descript_read_d         <= descript_read_q;
+    tap_number_d            <= tap_number_q;
     end_msg_d               <= end_msg_q;
     beg_msg_d               <= beg_msg_q;
     size_d                  <= size_q;
     
-    temp_addr_d     <= temp_addr_q;
+    offset_d     <= offset_q;
     S_NOC_VALID     <= '0';
     M_irq           <= '0'; -- irq enable;
     M_IP_WE         <= '0';
     M_IP_RE         <= '0';
     M_IP_ADDR       <= (others => '0');
-    M_IP_DATA       <= (others => '0');
     rd_en       <= '0';
     
     case etat_q is
+        when S_init =>
+            descript_base_addr_q    <= MEM_BASE_ADDR;
+            descript_size_q         <= DESC_SIZE;
+            descript_read_q         <= (others => '0');
+            descript_write_q        <= (others => '0');
+            offset_q             <= (others => '0');
+            size_q                  <= (others => '0');
+            tap_number_d            <= '0';
+            end_msg_d               <= '0';
+            beg_msg_d               <= '0';
+            etat_d <= S_wait_request;
             
         when S_wait_request =>
-            end_msg_d   <= '0';
-            beg_msg_d   <= '0';
+
             --attente de reception de debut de transfert fifo_tx -> fifo_rx
-            --le TX est pret à envoyé des data
+            --le TX est pret a envoye des data
             if S_NOC_READY = '1' then
                 S_NOC_VALID <= '1';
-                etat_d <= S_wait_full;
+                etat_d <= S_write_fifo;
             end if;
             
-            
-        when S_wait_full => 
-            --Attente de remplissage de la fifo par tx
-            --on attend soit que a fifo soit pleine ou la reception du dernier msg
-            if S_NOC_BEG_MSG = '1' then
-                beg_msg_d <= '1';
+        when S_write_fifo =>
+            --Remplissage de la fifo
+            -- La fifo se remplit a l'aide des signaux d'entres
+            if S_NOC_WE = '0' or empty = '0' then
+                etat_d <= S_read_rb;
             end if;
             
-            if S_NOC_END_MSG = '1' then
-                end_msg_d <= '1';
-            end if;
-            
-            if full = '1' or S_NOC_END_MSG = '1' then
-                etat_d <= S_load_addr;
-            else
-                etat_d <= S_wait_full;
-            end if;
-            
-        when S_load_addr =>
-            --on modifie l'addresse du rb si c'est le msg transmis
-            -- si c'est le premier message
-            if beg_msg_q = '1' then        
-                M_IP_WE     <= '1';
-                M_IP_ADDR   <= conv_std_logic_vector(unsigned(descript_base_addr_q) + unsigned(descript_write_q) + 4,32);
-                M_IP_DATA   <= temp_addr_q;
-                temp_addr_d <= temp_addr_q;
---                    temp_addr_d <= conv_std_logic_vector(unsigned(DATA_BASE_ADDR) + unsigned(temp_addr_q), 32); 
-            else
-                beg_msg_d   <= '0';
-            end if;
-            etat_d <= S_read_fifo;
-
-
-        when S_read_fifo =>
-            --Lecture de la fifo
+        when S_read_rb =>
+            --Lecture de l'adresse d'ecriture
             -- Avant, on verifie s'il y a de la place dans la RAM (buffers rx)
             if unsigned(descript_write_q) /= unsigned(descript_read_q xor DESC_SIZE) then
-                rd_en   <= '1';  
-                etat_d  <= S_load_msg;
-            end if;etat_d  <= S_load_msg;
+                if tap_number_q = '0' then 
+                    M_IP_RE         <= '1';
+                    M_IP_ADDR       <= descript_write_q;
+                    tap_number_d    <= '1';
+                else
+                    offset_d     <= M_IP_DATA;
+                    tap_number_d    <= '0';
+                    rd_en <= '1';
+                    etat_d <= S_write_ram;
+                end if;
+            end if;
             --irq
                         
-       when S_load_msg =>
+       when S_write_ram =>
             if empty = '0' then 
                 rd_en       <= '1';
                 M_IP_WE     <= '1';
-                M_IP_ADDR   <= temp_addr_q;
+                M_IP_ADDR   <= offset_q + nb_mots_ecrits_q;
                 M_IP_DATA   <= fifo_out;
-                temp_addr_d <= conv_std_logic_vector(unsigned(temp_addr_q) + 4,32);
+                offset_d <= conv_std_logic_vector(unsigned(offset_q) + 4,32);
                 size_d      <= conv_std_logic_vector(unsigned(size_q) + 4,32);
             
             else
                 rd_en       <= '1';
                 M_IP_WE     <= '1';
-                M_IP_ADDR   <= temp_addr_q;
+                M_IP_ADDR   <= offset_q;
                 M_IP_DATA   <= fifo_out;
-                temp_addr_d <= conv_std_logic_vector(unsigned(temp_addr_q) + 4,32);
+                offset_d <= conv_std_logic_vector(unsigned(offset_q) + 4,32);
                 size_d      <= conv_std_logic_vector(unsigned(size_q) + 4,32);
                 
                 if end_msg_q = '1' then 
@@ -248,15 +239,15 @@ begin
                 end if;
             end if;
             
-        when S_load_size =>
+        when S_end =>
                 M_IP_WE     <= '1';
                 M_IP_ADDR   <= conv_std_logic_vector(unsigned(descript_base_addr_q) + unsigned(descript_write_q),32);
                 M_IP_DATA   <= conv_std_logic_vector(unsigned(size_q), 32);
                 size_d      <= (others => '0');
-                descript_write_d    <= conv_std_logic_vector(unsigned(descript_write_q) + 1,32)and 
-                                        conv_std_logic_vector((unsigned(DESC_SIZE & '0')-1),32);
+                descript_write_d    <= conv_std_logic_vector(unsigned(descript_write_q) + 8 ,32) and  maskBuffer;
+                                        --conv_std_logic_vector((unsigned(DESC_SIZE & '0')-1),32);
                                         
-                temp_addr_d         <= temp_addr_q and conv_std_logic_vector((unsigned(DATA_MEM_SIZE)-1),32);
+                offset_d         <= offset_q and conv_std_logic_vector((unsigned(DATA_MEM_SIZE)-1),32);
                 
                 etat_d <= S_wait_request;
         

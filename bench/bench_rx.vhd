@@ -53,12 +53,12 @@ architecture Behavioral of bench_rx is
             M_IP_WE         : out std_logic;
             M_IP_RE         : out std_logic;
             M_IP_ADDR       : out std_logic_vector(31 downto 0);
-            M_IP_DATA       : out std_logic_vector(31 downto 0)
+            M_IP_DATA       : inout std_logic_vector(31 downto 0);
         );
     end component;
     
     component RAM
-        generic( MEM_SIZE : integer := 2000 );
+        generic( MEM_SIZE : integer := 9000 );
         Port ( 
             CLK : in STD_LOGIC;
             RESET : in STD_LOGIC;
@@ -78,7 +78,7 @@ architecture Behavioral of bench_rx is
         
     end component;
     
-    signal CLK     :   std_logic := '0';
+    signal CLK     :  std_logic := '0';
     signal RESET   :  std_logic;
     
     
@@ -91,23 +91,26 @@ architecture Behavioral of bench_rx is
     signal S_NOC_END_MSG    :  std_logic := '0';
     signal S_NOC_BEG_MSG    :  std_logic := '0';
     --irq to uC
-    signal M_irq            :  std_logic;
+    signal M_irq        :  std_logic;
     --local ram's signals
-    signal M_IP_WE   :  std_logic ;
-    signal M_IP_RE   :  std_logic;
-    signal M_IP_ADDR :  std_logic_vector(31 downto 0);
-    signal M_IP_DATA :  std_logic_vector(31 downto 0);
+    signal M_IP_WE      :  std_logic ;
+    signal M_IP_RE      :  std_logic;
+    signal M_IP_ADDR    :  std_logic_vector(31 downto 0);
+    signal M_IP_DATA    :  std_logic_vector(31 downto 0);
     
-    signal RE   :  std_logic;
-    signal ADDR :  std_logic_vector(31 downto 0);
-    signal DATA :  std_logic_vector(31 downto 0);
+    signal re_fill      :  std_logic;
+    signal we_fill      :  std_logic;
+    signal addr_fill    :  std_logic_vector(31 downto 0);
+    signal data_fill    :  std_logic_vector(31 downto 0);
+    
+    signal end_fill_ram : std_logic := '0';
         
     constant clk_period : time := 5 ns;
     
     
 begin
 u_ram_600: RAM
-    generic map (MEM_SIZE   => 2000)
+    generic map (MEM_SIZE   => 9000)
     port map(
         CLK   => CLK, 
         RESET => RESET,
@@ -116,13 +119,13 @@ u_ram_600: RAM
         rea   => M_IP_RE,
         addra => M_IP_ADDR,
         dia   => M_IP_DATA,
-        doa   => open,
+        doa   => M_IP_DATA,
         
-        web   => '0',
-        reb   => RE,
-        addrb => ADDR,
-        dib   => (others => '0'),
-        dob   => DATA
+        web   => we_fill,
+        reb   => re_fill,
+        addrb => addr_fill,
+        dib   => data_fill,
+        dob   => open
         
     );
 
@@ -143,17 +146,37 @@ u_rx: rx
         M_IP_WE   =>  M_IP_WE,
         M_IP_RE  => M_IP_RE,
         M_IP_ADDR  => M_IP_ADDR,
-        M_IP_DATA  => M_IP_DATA
-    
+        M_IP_DATA  => M_IP_DATA,
     );
 
     CLK <= not(CLK) after clk_period;
     
     RESET <= '0', '1' after 3*clk_period , '0' after 7*clk_period;
+    
+    
+------------------------------------------------------------------------
+-- Processus qui remplit la memoire
+fill_ram : process
+begin
+    wait for 100 ns;
+    -- On remplit le RB
+    for i in 0 to 7 loop
+        we_fill <= '1';
+        data_fill <= conv_std_logic_vector(128 + (1024 * i), 32);
+        addr_fill <= conv_std_logic_vector(8*i + 4, 32);
+        wait for clk_period;
+        we_fill <= '0';
+        wait for clk_period;
+    end loop;
+    end_fill_ram <= '1';
+    wait on RESET;
+end process;
+-------------------------------------------------------------------------
 
 --    S_NOC_READY <= '0', '1' after 15*clk_period , '0' after 19*clk_period, '1' after 89*clk_period, '0' after 93*clk_period;
 p_ready: process
 begin
+    wait until end_fill_ram = '1';
     wait for 15*clk_period;
     S_NOC_READY <= '1';
     wait for 4*clk_period;
@@ -163,7 +186,7 @@ end process;
     
 p_test: process 
 begin 
-    --wait for 21*clk_period;
+    wait until end_fill_ram = '1';
     for j in 1 to 8 loop
             S_NOC_BEG_MSG <= '1';
         wait until S_NOC_VALID = '1';   
@@ -191,12 +214,13 @@ begin
         
     end loop;
 end process;
+-----------------------------------------------------------------------
 
 -- pragma translate_off
 --lecture_memory: process
 --    variable L: line;
 --    file SORTIES : text open write_mode is "sortie.dat";
---	variable A: integer;	 -- variables à lire
+--	variable A: integer;	 -- variables ï¿½ lire
 --begin
 --    wait for 90*clk_period;
 --    for i in 0 to 576 loop
@@ -210,7 +234,7 @@ end process;
 --    end loop;
 
 --end process;
-	-- pragma translate_on
+-- pragma translate_on
 
     
 end Behavioral;
