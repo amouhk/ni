@@ -69,7 +69,7 @@ begin
             mem_im(i) <= X"00";
         end loop;
     else
-        if CLK'event and CLK = '0' then
+        if CLK'event and CLK = '1' then
         -- écriture
             if wea = '1' then
                 mem_im(conv_integer(addra))     <= dia(31 downto 24);

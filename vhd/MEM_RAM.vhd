@@ -36,6 +36,7 @@ use ieee.math_real.all;
 --use UNISIM.VComponents.all;
 
 entity MEM_RAM is
+    generic (MEM_SIZE : integer);
     Port ( 
         CLK : in  STD_LOGIC;
         RESET : in  STD_LOGIC;
@@ -56,7 +57,7 @@ end MEM_RAM;
 
 architecture Behavioral of MEM_RAM is
 
-	type   type_mem_im is array(0 to 9000) of std_logic_vector(7 downto 0);
+	type   type_mem_im is array(0 to MEM_SIZE) of std_logic_vector(7 downto 0);
    signal mem_im : type_mem_im;
 
 begin
@@ -64,7 +65,7 @@ begin
     begin
 
         if RESET = '1' then
-            for i in 0 to 9000 loop
+            for i in 0 to MEM_SIZE loop
                 mem_im(i) <= X"00";
             end loop;
         else
