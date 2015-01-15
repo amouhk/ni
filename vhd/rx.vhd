@@ -76,12 +76,10 @@ architecture Behavioral of rx is
     signal descript_write_d, descript_write_q           : std_logic_vector(31 downto 0);
     signal descript_read_d, descript_read_q             : std_logic_vector(31 downto 0);
     signal end_msg_d, end_msg_q                         : std_logic := '0';
-    -- Taille du buffer ou message
-    signal actual_size_d, actual_size_q                 : std_logic_vector(31 downto 0);
     --
     signal tap_number_d, tap_number_q           : std_logic;
     signal offset_d, offset_q                   : std_logic_vector(31 downto 0);
-    signal nb_mots_ecrits_d, nb_mots_ecrits_q   : integer;
+    signal nb_mots_ecrits_d, nb_mots_ecrits_q   : std_logic_vector(31 downto 0);--integer;
     --signal fifo
     signal fifo_out     : std_logic_vector(31 downto 0);
     signal full, empty  : std_logic;
@@ -91,7 +89,7 @@ architecture Behavioral of rx is
     --Declare constants
     constant MEM_BASE_ADDR      : std_logic_vector(31 downto 0) := (others => '0');
     constant DESC_SIZE          : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --8*(2*4)
-    constant BUFFER_SIZE        : integer := 64;  --4*(16 or 256)
+    constant BUFFER_SIZE        : integer := 1024;  --4*(16 or 256)
             
     
 begin
@@ -124,7 +122,6 @@ begin
             end_msg_q               <= end_msg_d; 
             tap_number_q            <= tap_number_d; 
             nb_mots_ecrits_q        <= nb_mots_ecrits_d; 
-            actual_size_q           <= actual_size_d;
             offset_q                <= offset_d;
         end if;
      end if;
@@ -135,7 +132,7 @@ end process P_SYNC;
 --Process comb
 P_COMB: process(Etat_q, 
                 descript_read_q, descript_write_q, descript_size_q, descript_base_addr_q,
-                actual_size_q, offset_q, end_msg_q, nb_mots_ecrits_q,tap_number_q,
+                offset_q, end_msg_q, nb_mots_ecrits_q,tap_number_q,
                 S_NOC_READY, S_NOC_WE, S_NOC_END_MSG, S_NOC_DATA, M_IP_RB,
                 fifo_out, full, empty)
                 
@@ -153,7 +150,6 @@ begin
     end_msg_d               <= end_msg_q; 
     tap_number_d            <= tap_number_q; 
     nb_mots_ecrits_d        <= nb_mots_ecrits_q; 
-    actual_size_d           <= actual_size_q;
     offset_d                <= offset_q;
     
     S_NOC_VALID             <= '0';
@@ -172,8 +168,7 @@ begin
             descript_write_d        <= (others => '0');
             end_msg_d               <= '0'; 
             tap_number_d            <= '0'; 
-            nb_mots_ecrits_d        <=  0; 
-            actual_size_d           <= (others => '0');
+            nb_mots_ecrits_d        <= (others => '0'); 
             offset_d                <= (others => '0');
             etat_d <= S_wait_request;
             
@@ -200,8 +195,7 @@ begin
             --Lecture de l'adresse d'ecriture
             -- Avant, on verifie s'il y a de la place dans la RAM (buffers rx)
             if unsigned(descript_write_q) /= unsigned(descript_read_q xor DESC_SIZE) then
-                if unsigned(offset_q) = 0 then 
-                    if tap_number_q = '0' then 
+                    if tap_number_q = '0' and unsigned(offset_q) = 0 then 
                         M_IP_RE         <= '1';
                         M_IP_ADDR       <= conv_std_logic_vector(unsigned(descript_write_q and mask) + 4, 32);
                         tap_number_d    <= '1';
@@ -211,7 +205,7 @@ begin
                         rd_en <= '1';
                         etat_d <= S_write_ram;
                     end if;
-              end if;
+
             else
                 M_irq  <= '1';
             end if;
@@ -220,34 +214,31 @@ begin
                         
         when S_write_ram =>             
             if empty = '0' then
-                nb_mots_ecrits_d <= nb_mots_ecrits_q + 4;
+                nb_mots_ecrits_d <= conv_std_logic_vector(unsigned(nb_mots_ecrits_q) + 4,32);
                 rd_en       <= '1';
                 M_IP_WE     <= '1';
-                M_IP_ADDR   <= conv_std_logic_vector(unsigned(offset_q) + nb_mots_ecrits_q,32);
+                M_IP_ADDR   <= conv_std_logic_vector(unsigned(offset_q) + unsigned(nb_mots_ecrits_q),32);
                 M_IP_DATA   <= fifo_out;
-                actual_size_d      <= conv_std_logic_vector(unsigned(actual_size_q) + 4,32);
             else
-                nb_mots_ecrits_d <= nb_mots_ecrits_q + 4;
+                nb_mots_ecrits_d <= conv_std_logic_vector(unsigned(nb_mots_ecrits_q) + 4,32);
                 rd_en       <= '1';
                 M_IP_WE     <= '1';
-                M_IP_ADDR   <= conv_std_logic_vector(unsigned(offset_q) + nb_mots_ecrits_q,32);
+                M_IP_ADDR   <= conv_std_logic_vector(unsigned(offset_q) + unsigned(nb_mots_ecrits_q),32);
                 M_IP_DATA   <= fifo_out;
-                actual_size_d      <= conv_std_logic_vector(unsigned(actual_size_q) + 4,32);
             
                 etat_d <= S_end;
             end if;
 
             
         when S_end =>
-            if (nb_mots_ecrits_q = BUFFER_SIZE) or end_msg_q = '1' then 
+            if (unsigned(nb_mots_ecrits_q) = BUFFER_SIZE) or end_msg_q = '1' then 
                 M_IP_WE             <= '1';
                 M_IP_ADDR           <= descript_write_q and mask;
-                M_IP_DATA           <= conv_std_logic_vector(unsigned(actual_size_q), 32);
-                actual_size_d              <= (others => '0');
+                M_IP_DATA           <= nb_mots_ecrits_q;
                 descript_write_d    <= conv_std_logic_vector(unsigned(descript_write_q) + 8 ,32) and  mask2;
                 end_msg_d           <= '0';         
                 offset_d            <= (others => '0');
-                nb_mots_ecrits_d    <= 0;
+                nb_mots_ecrits_d    <= (others => '0');
             end if;
                 
             etat_d <= S_wait_request;
