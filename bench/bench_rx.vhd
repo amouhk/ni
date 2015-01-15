@@ -150,15 +150,6 @@ u_rx: rx
     
     RESET <=  '1', '0' after 13*clk_period;
     
---    S_NOC_READY <= '0', '1' after 50*clk_period ,  '0' after 54*clk_period, 
---                        '1' after 140*clk_period , '0' after 144*clk_period,
---                        '1' after 230*clk_period , '0' after 234*clk_period,
---                        '1' after 320*clk_period , '0' after 324*clk_period,
---                        '1' after 410*clk_period , '0' after 414*clk_period,
---                        '1' after 500*clk_period , '0' after 504*clk_period,
---                        '1' after 590*clk_period , '0' after 594*clk_period,
---                        '1' after 680*clk_period , '0' after 684*clk_period,
---                        '1' after 770*clk_period , '0' after 774*clk_period;
 -------------------------------------------------------------------------
 --Process de simulation du NI_TX
 p_ready: process
@@ -176,11 +167,32 @@ end process;
 -----------------------------------------------------------------------
 --Process de simulation du NI_TX
 --le message se trouve dans une seule barette de 16 mots 
-short_msg_test: process 
+--long_msg_test: process 
+--begin 
+--    --for j in 1 to 144 loop
+--        wait until S_NOC_VALID = '1';   
+--        for i in 0 to 15 loop
+--            S_NOC_DATA <= conv_std_logic_vector(i, 32);
+--            S_NOC_WE <= '1';
+--            wait for 2*clk_period;
+--        end loop;
+        
+--        S_NOC_WE <= '0';
+--        wait for 42*clk_period;
+--    --end loop;
+--end process;
+-----------------------------------------------------------------------
+end_msg_test: process 
 begin 
-    --for j in 1 to 144 loop
-        wait until S_NOC_VALID = '1';   
+    for j in 1 to 144 loop
+        wait until S_NOC_VALID = '1';
+           
         for i in 0 to 15 loop
+        if j = 24 then 
+            S_NOC_END_MSG <= '1';
+        else
+            S_NOC_END_MSG <= '0';
+        end if;
             S_NOC_DATA <= conv_std_logic_vector(i, 32);
             S_NOC_WE <= '1';
             wait for 2*clk_period;
@@ -188,7 +200,6 @@ begin
         
         S_NOC_WE <= '0';
         wait for 42*clk_period;
-    --end loop;
+   end loop;
 end process;
------------------------------------------------------------------------
 end Behavioral;
