@@ -40,7 +40,6 @@ entity tx is
            rst          : in STD_LOGIC;
            clk          : in STD_LOGIC;
            RAM_DATA     : in STD_LOGIC_VECTOR (31 downto 0);
-           RAM_WE       : out STD_LOGIC;
            RAM_RE       : out STD_LOGIC;
            RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0);
            NI_ack       : in STD_LOGIC;
@@ -150,7 +149,6 @@ begin
         fifo_we                 <= '0' ;
         fifo_in                 <= (others => '0');
         RAM_RE                  <= '0' ;
-        RAM_WE                  <= '0' ;
         RAM_ADDR                <= (others => '0');
         NI_ready                <= '0' ;
         NI_data                 <= (others => '0');

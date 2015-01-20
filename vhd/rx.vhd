@@ -34,6 +34,9 @@ entity rx is
     Port ( 
         CLK             : in  std_logic;
         RESET           : in std_logic;
+        --entrees du CPU
+        CPU_addr        : in std_logic_vector(31 downto 0);
+        CPU_we          : in std_logic;
         --ni_tx_data
         S_NOC_READY     : in std_logic;
         S_NOC_VALID     : out std_logic;
@@ -80,6 +83,7 @@ architecture Behavioral of rx is
     signal tap_number_d, tap_number_q           : std_logic;
     signal offset_d, offset_q                   : std_logic_vector(31 downto 0);
     signal nb_mots_ecrits_d, nb_mots_ecrits_q   : std_logic_vector(31 downto 0);--integer;
+    signal ram_full_d, ram_full_q                   : std_logic;
     --signal fifo
     signal fifo_out     : std_logic_vector(31 downto 0);
     signal full, empty  : std_logic;
@@ -113,7 +117,6 @@ begin
         if RESET = '1' then 
             Etat_q                  <= S_init;
         else 
-        
             Etat_q                  <= Etat_d;
             
             descript_base_addr_q    <= descript_base_addr_d;
@@ -124,6 +127,7 @@ begin
             tap_number_q            <= tap_number_d; 
             nb_mots_ecrits_q        <= nb_mots_ecrits_d; 
             offset_q                <= offset_d;
+            ram_full_q              <= ram_full_d;
         end if;
      end if;
 end process P_SYNC;
@@ -133,9 +137,9 @@ end process P_SYNC;
 --Process comb
 P_COMB: process(Etat_q, 
                 descript_read_q, descript_write_q, descript_size_q, descript_base_addr_q,
-                offset_q, end_msg_q, nb_mots_ecrits_q,tap_number_q,
+                offset_q, end_msg_q, nb_mots_ecrits_q,tap_number_q,ram_full_q,
                 S_NOC_READY, S_NOC_WE, S_NOC_END_MSG, S_NOC_DATA, M_IP_RB,
-                fifo_out, full, empty)
+                CPU_we, CPU_addr, fifo_out, full, empty)
                 
     constant mask  : std_logic_vector(31 downto 0) := ( 6 => '0', others => '1');
     constant mask2 : std_logic_vector(31 downto 0) := ( 0 => '1', 1 => '1', 2 => '1', 3 => '1', 
@@ -146,12 +150,12 @@ begin
     
     descript_base_addr_d    <= descript_base_addr_q;
     descript_size_d         <= descript_size_q;
-    descript_read_d         <= descript_read_q;
     descript_write_d        <= descript_write_q;
     end_msg_d               <= end_msg_q; 
     tap_number_d            <= tap_number_q; 
     nb_mots_ecrits_d        <= nb_mots_ecrits_q; 
     offset_d                <= offset_q;
+    ram_full_d              <= ram_full_q;
     
     S_NOC_VALID             <= '0';
     M_irq                   <= '0';
@@ -160,6 +164,14 @@ begin
     M_IP_ADDR               <= (others => '0');
     M_IP_DATA               <= (others => '0');
     rd_en                   <= '0';
+    
+    if CPU_we = '1' then 
+        descript_read_d <= CPU_addr;
+    else 
+        descript_read_d         <= descript_read_q;
+    end if;
+    
+    
     
     case etat_q is
         when S_init =>
@@ -171,12 +183,13 @@ begin
             tap_number_d            <= '0'; 
             nb_mots_ecrits_d        <= (others => '0'); 
             offset_d                <= (others => '0');
-            etat_d <= S_wait_request;
+            ram_full_d              <= '0';     
+            etat_d                  <= S_wait_request;
             
         when S_wait_request =>
             --attente de reception de debut de transfert fifo_tx -> fifo_rx
             --le TX est pret a envoye des data
-            if S_NOC_READY = '1' then
+            if S_NOC_READY = '1' and ram_full_q = '0' then
                 S_NOC_VALID <= '1';
                 etat_d <= S_write_fifo;
             end if;
@@ -206,9 +219,10 @@ begin
                         rd_en <= '1';
                         etat_d <= S_write_ram;
                     end if;
-
+                ram_full_d <= '0';
             else
-                M_irq  <= '1';
+                ram_full_d <= '1';
+                etat_d <= S_wait_request;
             end if;
             --irq
             
@@ -240,6 +254,9 @@ begin
                 end_msg_d           <= '0';         
                 offset_d            <= (others => '0');
                 nb_mots_ecrits_d    <= (others => '0');
+                if end_msg_q = '1' then
+                    M_irq <= '1';
+                end if;
             end if;
                 
             etat_d <= S_wait_request;

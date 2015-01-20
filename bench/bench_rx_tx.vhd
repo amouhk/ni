@@ -2,9 +2,9 @@
 -- Company: 
 -- Engineer: 
 -- 
--- Create Date: 12/10/2014 03:20:59 PM
+-- Create Date: 01/16/2015 04:47:49 PM
 -- Design Name: 
--- Module Name: bench_tx - Behavioral
+-- Module Name: bench_rx_tx - Behavioral
 -- Project Name: 
 -- Target Devices: 
 -- Tool Versions: 
@@ -17,7 +17,6 @@
 -- Additional Comments:
 -- 
 ----------------------------------------------------------------------------------
-
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
@@ -34,10 +33,10 @@ use ieee.std_logic_arith.all;
 --library UNISIM;
 --use UNISIM.VComponents.all;
 
-entity bench_tx is
-end bench_tx;
+entity bench_rx_tx is
+end bench_rx_tx;
 
-architecture Behavioral of bench_tx is
+architecture Behavioral of bench_rx_tx is
     component tx port(
         CPU_addr     : in STD_LOGIC_VECTOR (31 downto 0);
         CPU_we       : in STD_LOGIC;
@@ -50,31 +49,80 @@ architecture Behavioral of bench_tx is
         NI_ready     : out STD_LOGIC;
         NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
         NI_we        : out STD_LOGIC;
+        NI_eom       : out STD_LOGIC;
         irq          : out STD_LOGIC
+
+   );
+   end component;
+   
+   component MEM_RAM Port ( 
+       CLK     : in  STD_LOGIC;
+       RESET   : in  STD_LOGIC;
+       addr    : in  STD_LOGIC_VECTOR (31 downto 0);
+       din     : in  STD_LOGIC_VECTOR (31 downto 0);
+       dout    : out  STD_LOGIC_VECTOR (31 downto 0);
+       we      : in  STD_LOGIC;
+       re      : in  STD_LOGIC;
+       addr_B  : in  STD_LOGIC_VECTOR (31 downto 0);
+       din_B   : in  STD_LOGIC_VECTOR (31 downto 0);
+       dout_B  : out  STD_LOGIC_VECTOR (31 downto 0);
+       we_B    : in  STD_LOGIC;
+       re_B    : in  STD_LOGIC
+   );
+   end component;
+
+    component rx port (
+        CLK             : in  std_logic;
+        RESET           : in std_logic;
+        --entrees du CPU
+        CPU_addr        : in std_logic_vector(31 downto 0);
+        CPU_we          : in std_logic;
+        --ni_tx_data
+        S_NOC_READY     : in std_logic;
+        S_NOC_VALID     : out std_logic;
+        S_NOC_DATA      : in std_logic_vector(31 downto 0);
+        S_NOC_WE        : in std_logic; -- indique le debut et la fin d'une transaction
+        S_NOC_END_MSG   : in std_logic;
+        --irq to uC
+        M_irq           : out std_logic;
+        --local ram's signals
+        M_IP_WE         : out std_logic;
+        M_IP_RE         : out std_logic;
+        M_IP_ADDR       : out std_logic_vector(31 downto 0);
+        M_IP_DATA       : out std_logic_vector(31 downto 0);
+        M_IP_RB         : in std_logic_vector(31 downto 0)
     );
     end component;
+       
     
-    component MEM_RAM Port ( 
-        CLK     : in  STD_LOGIC;
-        RESET   : in  STD_LOGIC;
-        addr    : in  STD_LOGIC_VECTOR (31 downto 0);
-        din     : in  STD_LOGIC_VECTOR (31 downto 0);
-        dout    : out  STD_LOGIC_VECTOR (31 downto 0);
-        we      : in  STD_LOGIC;
-        re      : in  STD_LOGIC;
-        addr_B  : in  STD_LOGIC_VECTOR (31 downto 0);
-        din_B   : in  STD_LOGIC_VECTOR (31 downto 0);
-        dout_B  : out  STD_LOGIC_VECTOR (31 downto 0);
-        we_B    : in  STD_LOGIC;
-        re_B    : in  STD_LOGIC
-    );
+    component RAM
+        generic( MEM_SIZE : integer := 9000 );
+        Port ( 
+            CLK     : in  STD_LOGIC;
+            RESET   : in  STD_LOGIC;
+            -- 1er port A
+            addr    : in  STD_LOGIC_VECTOR (31 downto 0);
+            din     : in  STD_LOGIC_VECTOR (31 downto 0);
+            dout    : out  STD_LOGIC_VECTOR (31 downto 0);
+            we      : in  STD_LOGIC;
+            re      : in  STD_LOGIC;
+            --2eme port B
+            addr_B  : in  STD_LOGIC_VECTOR (31 downto 0);
+            din_B   : in  STD_LOGIC_VECTOR (31 downto 0);
+            dout_B  : out  STD_LOGIC_VECTOR (31 downto 0);
+            we_B    : in  STD_LOGIC;
+            re_B    : in  STD_LOGIC
+        );
+        
     end component;
-    
-    --signaux genere par le bench
+
+--signaux genere par le bench
     signal clk          : std_logic := '0';
     signal rst          : std_logic := '0';
-    signal CPU_addr     : std_logic_vector(31 downto 0) := (others => '0');
-    signal CPU_we       : STD_LOGIC := '0';
+    signal CPU_addr_tx  : std_logic_vector(31 downto 0) := (others => '0');
+    signal CPU_we_tx    : STD_LOGIC := '0';
+    signal CPU_addr_rx  : std_logic_vector(31 downto 0) := (others => '0');
+    signal CPU_we_rx    : STD_LOGIC := '0';
     
     signal din_ram      : std_logic_vector(31 downto 0) := (others => '0');
     signal din_ram_B    : std_logic_vector(31 downto 0) := (others => '0');
@@ -85,28 +133,40 @@ architecture Behavioral of bench_tx is
     signal ram_fill     : std_logic := '0';
     
     -- jonction entre les composants
-    signal addr_ram : std_logic_vector(31 downto 0);
-    signal data_ram : std_logic_vector(31 downto 0);
-    signal re_ram   : std_logic;
-    signal we_ram   : std_logic;
-    
-    -- signaux inutils qui simuleront le NI_rx
-    signal ack_ni       : STD_LOGIC := '0';
+    signal addr_ram     : std_logic_vector(31 downto 0);
+    signal data_ram     : std_logic_vector(31 downto 0);
+    signal re_ram       : std_logic;
+    signal we_ram       : std_logic;
+    signal ack_ni       : STD_LOGIC;
     signal ready_ni     : STD_LOGIC;
     signal data_ni      : STD_LOGIC_VECTOR (31 downto 0);
     signal we_ni        : STD_LOGIC;
+    signal eom_ni       : STD_LOGIC;
     
-    -- irq vers le CPU
-    signal irq_tx       : STD_LOGIC;
+    --irq to uC
+    signal irq_rx        : std_logic;
+    signal irq_tx       : std_logic;
+    --local ram's signals
+    signal M_IP_WE      :  std_logic ;
+    signal M_IP_RE      :  std_logic;
+    signal M_IP_ADDR    :  std_logic_vector(31 downto 0);
+    signal M_IP_DATA    :  std_logic_vector(31 downto 0):= (others => '0');
+    signal M_IP_RB      :  std_logic_vector(31 downto 0):= (others => '0');
     
+    signal re_fill      :  std_logic:= '0';
+    signal we_fill      :  std_logic:= '0';
+    signal addr_fill    :  std_logic_vector(31 downto 0):= (others => '0');
+    signal data_fill    :  std_logic_vector(31 downto 0):= (others => '0') ;
+    signal data_out     :  std_logic_vector(31 downto 0);
+
     constant clk_demi_period : time := 5 ns;
     constant clk_period : time := 10 ns;
-    
-    
+
 begin
-    u1 : tx port map(
-        CPU_addr    => CPU_addr,
-        CPU_we      => CPU_we,
+
+    u_tx : tx port map(
+        CPU_addr    => CPU_addr_tx,
+        CPU_we      => CPU_we_tx,
         rst         => rst,
         clk         => clk,
         RAM_DATA    => data_ram,
@@ -116,10 +176,11 @@ begin
         NI_ready    => ready_ni,
         NI_data     => data_ni,
         NI_we       => we_ni,
+        NI_EOM      => eom_ni,
         irq         => irq_tx
     );
     
-    u2 : MEM_RAM port map(
+    u_mem : MEM_RAM port map(
         CLK     => clk,
         RESET   => rst,
         addr    => addr_ram,
@@ -134,8 +195,54 @@ begin
         re_B    => re_ram_B
     );
 
+    u_ram: RAM
+    generic map (MEM_SIZE => 9000)
+    port map(
+        CLK     => CLK, 
+        RESET   => rst,
+        --port 1
+        we      => M_IP_WE,
+        re      => M_IP_RE,
+        addr    => M_IP_ADDR,
+        din     => M_IP_DATA,
+        dout    => M_IP_RB,
+        --port 2
+        we_B    => we_fill,
+        re_B    => re_fill,
+        addr_B  => addr_fill,
+        din_B   => data_fill,
+        dout_B  => data_out
+        
+    );
+
+    u_rx: rx port map (
+        CLK         => CLK,
+        RESET       => rst,
+        CPU_addr    => CPU_addr_rx,
+        CPU_we      => CPU_we_rx,
+        --ni_tx_data
+        S_NOC_READY     => ready_ni,
+        S_NOC_VALID     => ack_ni,
+        S_NOC_DATA      => data_ni,
+        S_NOC_WE        =>  we_ni,
+        S_NOC_END_MSG   => eom_ni,
+        --irq to uC
+        M_irq           => irq_rx,
+        --local ram's signals
+        M_IP_WE         => M_IP_WE,
+        M_IP_RE         => M_IP_RE,
+        M_IP_ADDR       => M_IP_ADDR,
+        M_IP_DATA       => M_IP_DATA,
+        M_IP_RB         => M_IP_RB
+    );
+
+
+
+
     CLK <= not(CLK) after clk_demi_period; -- periode 10 ns
     Rst <= '1', '0' after 50 ns;
+
+
 
 -----------------------------------------------------------------------------------------------------------
     -- Processus qui remplit la memoire
@@ -199,24 +306,13 @@ begin
         wait on ram_fill;
         -- On fait bugger le NI en lui donnant une valeur que le CPU n'est pas cense donner
         -- De cette maniere le NI transmet indéfiniment les donnees
-        CPU_we <= '1';
-        CPU_addr <= X"00000001";
+        CPU_we_tx <= '1';
+        CPU_addr_tx <= X"00000001";
         wait for clk_period;
-        CPU_we <= '0';
+        CPU_we_tx <= '0';
         -- On arrete le processus
         wait on rst;
     end process;
 
 
------------------------------------------------------------------------------------------------------------
-    -- Processus qui simule l'autre NI
-    ni_rx : process
-    begin
-        wait on ready_ni;
-        wait for 4*clk_period;
-        ack_ni <= '1';
-        wait for clk_period;
-        ack_ni <= '0';
-    end process;
-    
 end Behavioral;
