@@ -50,7 +50,8 @@ architecture Behavioral of bench_tx is
         NI_ack       : in STD_LOGIC;
         NI_ready     : out STD_LOGIC;
         NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
-        NI_we        : out STD_LOGIC
+        NI_we        : out STD_LOGIC;
+        irq          : out STD_LOGIC
     );
     end component;
     

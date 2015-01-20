@@ -109,10 +109,11 @@ U_RX_FIFO: fifo_rx
 --Process synchrone
 P_SYNC: process(CLK, RESET)
 begin
-    if RESET = '1' then 
-        Etat_q                  <= S_init;
-     else 
-        if CLK'event and CLK = '1' then
+    if CLK'event and CLK = '1' then
+        if RESET = '1' then 
+            Etat_q                  <= S_init;
+        else 
+        
             Etat_q                  <= Etat_d;
             
             descript_base_addr_q    <= descript_base_addr_d;

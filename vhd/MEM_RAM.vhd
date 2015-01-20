@@ -36,7 +36,6 @@ use ieee.math_real.all;
 --use UNISIM.VComponents.all;
 
 entity MEM_RAM is
-    generic (MEM_SIZE : integer);
     Port ( 
         CLK : in  STD_LOGIC;
         RESET : in  STD_LOGIC;
@@ -57,54 +56,54 @@ end MEM_RAM;
 
 architecture Behavioral of MEM_RAM is
 
-    type   type_mem_im is array(0 to MEM_SIZE) of std_logic_vector(7 downto 0);
-    signal mem_im : type_mem_im;
+	type   type_mem_im is array(0 to 9000) of std_logic_vector(7 downto 0);
+   signal mem_im : type_mem_im;
 
 begin
+	process_mem_im : process(CLK, RESET)
+    begin
 
-process_mem_im: process(CLK, RESET)
-begin
+        if RESET = '1' then
+            for i in 0 to 9000 loop
+                mem_im(i) <= X"00";
+            end loop;
+        else
+            if CLK'event and CLK = '1' then
+                -- écriture
+                if we = '1' then 
+                    mem_im(conv_integer(addr))     <= din(31 downto 24);
+                    mem_im(conv_integer(addr + 1)) <= din(23 downto 16);
+                    mem_im(conv_integer(addr + 2)) <= din(15 downto 8);
+                    mem_im(conv_integer(addr + 3)) <= din(7 downto 0);
+                end if;
+                
+                -- Lecture
+                if re = '1' then 
+                    dout(31 downto 24) <= mem_im(conv_integer(addr));
+                    dout(23 downto 16) <= mem_im(conv_integer(addr + 1));
+                    dout(15 downto 8)  <= mem_im(conv_integer(addr + 2));
+                    dout(7 downto 0)   <= mem_im(conv_integer(addr + 3));
+                end if;
+                
+                
+                --2ème port
+                -- écriture
+                if we_B = '1' then 
+                    mem_im(conv_integer(addr_B))     <= din_B(31 downto 24);
+                    mem_im(conv_integer(addr_B + 1)) <= din_B(23 downto 16);
+                    mem_im(conv_integer(addr_B + 2)) <= din_B(15 downto 8);
+                    mem_im(conv_integer(addr_B + 3)) <= din_B(7 downto 0);
+                end if;
+                
+                -- Lecture
+                if re_B = '1' then 
+                    dout_B(31 downto 24) <= mem_im(conv_integer(addr_B));
+                    dout_B(23 downto 16) <= mem_im(conv_integer(addr_B + 1));
+                    dout_B(15 downto 8)  <= mem_im(conv_integer(addr_B + 2));
+                    dout_B(7 downto 0)   <= mem_im(conv_integer(addr_B + 3));
+                end if;
+            end if;	
+        end if;
+    end process;
 
-    if RESET = '1' then
-        for i in 0 to MEM_SIZE loop
-            mem_im(i) <= X"00";
-        end loop;
-    else
-        if CLK'event and CLK = '1' then
-            -- écriture
-            if we = '1' then 
-                mem_im(conv_integer(addr))     <= din(31 downto 24);
-                mem_im(conv_integer(addr + 1)) <= din(23 downto 16);
-                mem_im(conv_integer(addr + 2)) <= din(15 downto 8);
-                mem_im(conv_integer(addr + 3)) <= din(7 downto 0);
-            end if;
-            
-            -- Lecture
-            if re = '1' then 
-                dout(31 downto 24) <= mem_im(conv_integer(addr));
-                dout(23 downto 16) <= mem_im(conv_integer(addr + 1));
-                dout(15 downto 8)  <= mem_im(conv_integer(addr + 2));
-                dout(7 downto 0)   <= mem_im(conv_integer(addr + 3));
-            end if;
-            
-            
-            --2ème port
-            -- écriture
-            if we_B = '1' then 
-                mem_im(conv_integer(addr_B))     <= din_B(31 downto 24);
-                mem_im(conv_integer(addr_B + 1)) <= din_B(23 downto 16);
-                mem_im(conv_integer(addr_B + 2)) <= din_B(15 downto 8);
-                mem_im(conv_integer(addr_B + 3)) <= din_B(7 downto 0);
-            end if;
-            
-            -- Lecture
-            if re_B = '1' then 
-                dout_B(31 downto 24) <= mem_im(conv_integer(addr_B));
-                dout_B(23 downto 16) <= mem_im(conv_integer(addr_B + 1));
-                dout_B(15 downto 8)  <= mem_im(conv_integer(addr_B + 2));
-                dout_B(7 downto 0)   <= mem_im(conv_integer(addr_B + 3));
-            end if;
-        end if;	
-    end if;
-end process;
 end Behavioral;

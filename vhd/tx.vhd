@@ -47,7 +47,8 @@ entity tx is
            NI_ready     : out STD_LOGIC;
            NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
            NI_we        : out STD_LOGIC;
-           NI_eom       : out STD_LOGIC
+           NI_eom       : out STD_LOGIC;
+           irq          : out STD_LOGIC
            );
 end tx;
 
@@ -154,7 +155,8 @@ begin
         NI_ready                <= '0' ;
         NI_data                 <= (others => '0');
         NI_we                   <= '0' ;
-        NI_eom                  <= '0';
+        NI_eom                  <= '0' ;
+        irq                     <= '0' ;
         
         -- On gere l'entree du CPU a tout moment
         if(CPU_we = '1') then
@@ -282,7 +284,8 @@ begin
                     Next_Tap_Number <= "01";
                 else
                     NI_we   <= '1';
-                    -- On indique que le message est termine uniquement a l'envoit de la derniere trame
+                    -- On indique au NI et au CPU que le message est termine 
+                    -- uniquement a l'envoit de la derniere trame
                     if(nb_mot_restant_q = 0) then
                         NI_eom <= end_of_msg_q;
                     end if;
@@ -297,6 +300,7 @@ begin
             when S_end_data =>
                 -- Si la barrete memoire n'est pas finit on la continue, sinon on passe au prochain element du rb
                 if(nb_mot_restant_q = 0) then
+                    irq    <= end_of_msg_q;
                     etat_d <= S_wait_instr ;
                 else
                     etat_d  <= S_write_fifo;
