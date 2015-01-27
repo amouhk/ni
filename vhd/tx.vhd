@@ -55,7 +55,7 @@ architecture Behavioral of tx is
     component fifo_tx 
 PORT (
         clk    : IN STD_LOGIC;
-        rst    : IN STD_LOGIC;
+        srst    : IN STD_LOGIC;
         din    : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
         wr_en  : IN STD_LOGIC;
         rd_en  : IN STD_LOGIC;
@@ -92,7 +92,7 @@ end component;
 begin
     U1 : fifo_tx port map(
         clk     =>  clk,
-        rst     =>  rst,
+        srst    =>  rst,
         din     =>  fifo_in,
         wr_en   =>  fifo_we,
         rd_en   =>  fifo_re,

@@ -59,7 +59,7 @@ architecture Behavioral of rx is
     component fifo_rx 
         PORT (
             clk     : IN STD_LOGIC;
-            rst     : IN STD_LOGIC;
+            srst     : IN STD_LOGIC;
             din     : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
             wr_en   : IN STD_LOGIC;
             rd_en   : IN STD_LOGIC;
@@ -93,7 +93,7 @@ architecture Behavioral of rx is
     --Declare constants
     constant MEM_BASE_ADDR      : std_logic_vector(31 downto 0) := (others => '0');
     constant DESC_SIZE          : std_logic_vector(31 downto 0) := ( 6 => '1', others => '0');  --8*(2*4)
-    constant BUFFER_SIZE        : integer := 1024;  --4*(16 or 256)
+    constant BUFFER_SIZE        : integer := 1024;  --4*256
             
     
 begin
@@ -101,7 +101,7 @@ begin
 U_RX_FIFO: fifo_rx 
     port map (
         clk     => CLK,
-        rst     => RESET,
+        srst     => RESET,
         din     => S_NOC_DATA,
         wr_en   => S_NOC_WE,
         rd_en   => rd_en,
