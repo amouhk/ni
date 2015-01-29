@@ -35,19 +35,22 @@ use ieee.std_logic_arith.all;
 --use UNISIM.VComponents.all;
 
 entity tx is
-    Port ( CPU_addr     : in STD_LOGIC_VECTOR (31 downto 0);
-           CPU_we       : in STD_LOGIC;
-           rst          : in STD_LOGIC;
-           clk          : in STD_LOGIC;
-           RAM_DATA     : in STD_LOGIC_VECTOR (31 downto 0);
-           RAM_WE       : out STD_LOGIC;
+    Port ( rst          : in  STD_LOGIC;
+           clk          : in  STD_LOGIC;
+           -- Signaux de la RAM
+           RAM_DATA     : in  STD_LOGIC_VECTOR (31 downto 0);
            RAM_RE       : out STD_LOGIC;
            RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0);
-           NI_ack       : in STD_LOGIC;
+           -- Signaux communquant avec l'autre ni
+           NI_ack       : in  STD_LOGIC;
            NI_ready     : out STD_LOGIC;
            NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
            NI_we        : out STD_LOGIC;
            NI_eom       : out STD_LOGIC;
+           -- Signaux gérer par le CPU
+           RB_SIZE      : in  STD_LOGIC_VECTOR (31 downto 0);
+           WRITE        : in  STD_LOGIC_VECTOR (31 downto 0);
+           READ         : out STD_LOGIC_VECTOR (31 downto 0);
            irq          : out STD_LOGIC
            );
 end tx;
@@ -56,7 +59,7 @@ architecture Behavioral of tx is
     component fifo_tx 
 PORT (
         clk    : IN STD_LOGIC;
-        rst    : IN STD_LOGIC;
+        srst    : IN STD_LOGIC;
         din    : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
         wr_en  : IN STD_LOGIC;
         rd_en  : IN STD_LOGIC;
@@ -75,12 +78,8 @@ end component;
     signal fifo_we, fifo_re                   : std_logic;
     signal fifo_empty, fifo_full              : std_logic;
     
-    -- Signaux du descripteur du ring buffer (RB)
-    signal begin_ram_q, begin_ram_d           : std_logic_vector(31 downto 0);
-    signal size_rb_q, size_rb_d               : std_logic_vector(31 downto 0);
-    signal read_q, read_d                     : std_logic_vector(31 downto 0);
-    signal write_q, write_d                   : std_logic_vector(31 downto 0);
-    
+    -- registre read
+    signal read_d, read_q                     : std_logic_vector(31 downto 0);
     -- Signaux permettant de stocker les donnees du RB
     signal actual_size_q, actual_size_d       : std_logic_vector(14 downto 0);
     signal size_max_q, size_max_d             : std_logic_vector(15 downto 0);
@@ -93,7 +92,7 @@ end component;
 begin
     U1 : fifo_tx port map(
         clk     =>  clk,
-        rst     =>  rst,
+        srst    =>  rst,
         din     =>  fifo_in,
         wr_en   =>  fifo_we,
         rd_en   =>  fifo_re,
@@ -101,7 +100,6 @@ begin
         full    =>  fifo_full,
         empty   =>  fifo_empty
     );
-    
     
 -----------------------------------------------------------------------------------------------------------
     sync : process(clk, rst)
@@ -116,11 +114,8 @@ begin
                 size_max_q         <= size_max_d ;
                 end_of_msg_q       <= end_of_msg_d ;
                 addr_ram_q         <= addr_ram_d ;
-                begin_ram_q        <= begin_ram_d ;
-                size_rb_q          <= size_rb_d ;
-                read_q             <= read_d ;
-                write_q            <= write_d ;
                 nb_mot_restant_q   <= nb_mot_restant_d;
+                read_q             <= read_d;
             end if ;
         end if ;
     end process sync ;
@@ -129,8 +124,8 @@ begin
 
 -----------------------------------------------------------------------------------------------------------
     comb : process(etat_q, Tap_Number, actual_size_q, size_max_q, end_of_msg_q, 
-                        addr_ram_q, begin_ram_q, size_rb_q, read_q, write_q, nb_mot_restant_q,
-                   CPU_we, CPU_addr, RAM_DATA, fifo_empty, fifo_full, fifo_out, NI_ack)
+                   addr_ram_q, nb_mot_restant_q, RAM_DATA, fifo_empty, fifo_full, 
+                   fifo_out, NI_ack, WRITE, read_q, RB_SIZE)
                    
         variable masque : std_logic_vector(31 downto 0);
     begin
@@ -141,29 +136,22 @@ begin
         size_max_d              <= size_max_q ;
         end_of_msg_d            <= end_of_msg_q ;
         addr_ram_d              <= addr_ram_q ;
-        begin_ram_d             <= begin_ram_q ;
-        size_rb_d               <= size_rb_q ;
-        read_d                  <= read_q ;
         nb_mot_restant_d        <= nb_mot_restant_q ;
+        read_d                  <= read_q;
         
         fifo_re                 <= '0' ;
         fifo_we                 <= '0' ;
         fifo_in                 <= (others => '0');
         RAM_RE                  <= '0' ;
-        RAM_WE                  <= '0' ;
         RAM_ADDR                <= (others => '0');
         NI_ready                <= '0' ;
         NI_data                 <= (others => '0');
         NI_we                   <= '0' ;
         NI_eom                  <= '0' ;
         irq                     <= '0' ;
-        
-        -- On gere l'entree du CPU a tout moment
-        if(CPU_we = '1') then
-            write_d <= CPU_addr;
-        else
-            write_d <= write_q ;
-        end if;
+        -- A tout moment la sortie read correspond à l'état courant du registre
+        READ                    <= read_q;
+
         
         case etat_q is
             when S_init =>
@@ -172,15 +160,9 @@ begin
                 size_max_d              <= (others => '0') ;
                 end_of_msg_d            <= '0' ;
                 addr_ram_d              <= (others => '0') ;
-                size_rb_d               <= (others => '0') ;
                 nb_mot_restant_d        <= (others => '0') ;
-                
-                -- On suppose que l'adresse de la ram = 0 et size_rb = 8
-                begin_ram_d <= (others => '0');
-                size_rb_d <= (3 => '1', others => '0');
-                -- Il faut initialiser read et write a begin_ram
-                read_d <= (others => '0');
-                write_d <= (others =>'0');
+                read_d                  <= (others => '0') ;
+
                 Next_Tap_Number <= "00";
                 etat_d <= S_wait_instr;
                 
@@ -189,7 +171,7 @@ begin
                 nb_mot_restant_d <= (others => '0');
                 -- On ne change d'etat que si le dernier message reçu n'est pas le prochain buffer vide
                 -- Il faut aussi que la fifo soit vide
-                if(write_q /= read_q and fifo_empty = '1') then
+                if(WRITE /= read_q and fifo_empty = '1') then
                     etat_d <= S_read_rb;
                 end if;
                 
@@ -198,7 +180,7 @@ begin
                     when "00" =>
                         -- On onvoit la demande de lecture de size du RB
                         RAM_RE    <= '1';
-                        masque    := (6 => '0', others => '1');
+                        masque    := not (RB_SIZE(28 downto 0) & "000");
                         RAM_ADDR  <= read_q and masque;
                         Next_Tap_Number <= "01";
                 
@@ -209,25 +191,23 @@ begin
                         end_of_msg_d   <= RAM_DATA(31);
                         -- On en profite pour initialiser le nomre de mot restant a actual_size
                         nb_mot_restant_d  <= '0' & RAM_DATA(30 downto 16);
-                        -- On suppose ici que size_rb = 8
-                        -- Sachant qu'un mot du rb fait 8 octets, on incemente modulo 8x16=128
-                        masque := (0 => '1', 1 => '1', 2 => '1', 3 => '1', 4 => '1', 5 => '1', 6 => '1', others => '0');
+                        -- Sachant qu'un mot du rb fait 8 octets, on incemente modulo 2*8*RB_SIZE
+                        masque := conv_std_logic_vector(unsigned(RB_SIZE(27 downto 0) & "0000") - 1, 32);
                         read_d <= conv_std_logic_vector(unsigned(read_q) + 4,32) and masque;
                         Next_Tap_Number <= "10";
                 
                     when "10" =>
                         -- On envoit la demande de lecture de l'adresse du RB
                         RAM_RE    <= '1';
-                        masque    := (6 => '0', others => '1');
+                        masque    := not (RB_SIZE(28 downto 0) & "000");
                         RAM_ADDR  <= read_q and masque;
                         Next_Tap_Number <= "11";
                         
                     when "11" =>
                         -- On memorise l'adresse des donnees qui nous interraissent
                         addr_ram_d <= RAM_DATA;
-                        -- On suppose ici que size_rb = 8
-                        -- Sachant qu'un mot du rb fait 8 octets, on incemente modulo 8x16=128
-                        masque := (0 => '1', 1 => '1', 2 => '1', 3 => '1', 4 => '1', 5 => '1', 6 => '1', others => '0');
+                        -- Sachant qu'un mot du rb fait 8 octets, on incemente modulo 2*8*RB_SIZE
+                        masque := conv_std_logic_vector(unsigned(RB_SIZE(27 downto 0) & "0000") - 1, 32);
                         read_d <= conv_std_logic_vector(unsigned(read_q) + 4, 32) and masque;
                         Next_Tap_Number <= "00";
                         etat_d <= S_write_fifo;

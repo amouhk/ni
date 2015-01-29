@@ -52,7 +52,11 @@ architecture Behavioral of bench_rx is
             M_IP_RE         : out std_logic;
             M_IP_ADDR       : out std_logic_vector(31 downto 0);
             M_IP_DATA       : out std_logic_vector(31 downto 0);
-            M_IP_RB         : in  std_logic_vector(31 downto 0)
+            M_IP_RB         : in  std_logic_vector(31 downto 0);
+            --Registres visibles à l'utilisateur
+            RB_SIZE         : in std_logic_vector(31 downto 0);
+            WRITE           : out std_logic_vector(31 downto 0);
+            READ            : in std_logic_vector(31 downto 0)
         );
     end component;
     
@@ -80,6 +84,7 @@ architecture Behavioral of bench_rx is
     signal CLK     :  std_logic := '0';
     signal RESET   :  std_logic;
     
+    ---
     
     
     --ni_tx_data
@@ -96,12 +101,11 @@ architecture Behavioral of bench_rx is
     signal M_IP_ADDR    :  std_logic_vector(31 downto 0);
     signal M_IP_DATA    :  std_logic_vector(31 downto 0):= (others => '0');
     signal M_IP_RB      :  std_logic_vector(31 downto 0):= (others => '0');
-    
-    signal re_fill      :  std_logic:= '0';
-    signal we_fill      :  std_logic:= '0';
-    signal addr_fill    :  std_logic_vector(31 downto 0):= (others => '0');
-    signal data_fill    :  std_logic_vector(31 downto 0);
-    signal data_out     :  std_logic_vector(31 downto 0);
+      
+    signal RB_SIZE    :  std_logic_vector(31 downto 0):= (3 => '1', others => '0');  
+    signal READ       :  std_logic_vector(31 downto 0):= (others => '0');
+    signal WRITE      :  std_logic_vector(31 downto 0):= (others => '0');
+     
             
     constant clk_period : time := 5 ns;
     
@@ -118,11 +122,11 @@ u_ram: RAM
         din     => M_IP_DATA,
         dout    => M_IP_RB,
         --port 2
-        we_B    => we_fill,
-        re_B    => re_fill,
-        addr_B  => addr_fill,
-        din_B   => data_fill,
-        dout_B  => data_out
+        we_B    => '0',
+        re_B    => '0',
+        addr_B  => (others => '0'),
+        din_B   => (others => '0'),
+        dout_B  => open
         
     );
 
@@ -143,7 +147,11 @@ u_rx: rx
         M_IP_RE     => M_IP_RE,
         M_IP_ADDR   => M_IP_ADDR,
         M_IP_DATA   => M_IP_DATA,
-        M_IP_RB     => M_IP_RB
+        M_IP_RB     => M_IP_RB,
+        --Registres visibles a l'utilisateur
+        RB_SIZE     => RB_SIZE,
+        WRITE       => WRITE,
+        READ        => READ
     );
 
     CLK <= not(CLK) after clk_period;
@@ -163,36 +171,14 @@ begin
    --end loop;
 --    wait on RESET;
 end process;
-
 -----------------------------------------------------------------------
 --Process de simulation du NI_TX
 --le message se trouve dans une seule barette de 16 mots 
---long_msg_test: process 
---begin 
---    --for j in 1 to 144 loop
---        wait until S_NOC_VALID = '1';   
---        for i in 0 to 15 loop
---            S_NOC_DATA <= conv_std_logic_vector(i, 32);
---            S_NOC_WE <= '1';
---            wait for 2*clk_period;
---        end loop;
-        
---        S_NOC_WE <= '0';
---        wait for 42*clk_period;
---    --end loop;
---end process;
------------------------------------------------------------------------
-end_msg_test: process 
+long_msg_test: process 
 begin 
-    for j in 1 to 144 loop
-        wait until S_NOC_VALID = '1';
-           
+    --for j in 1 to 144 loop
+        wait until S_NOC_VALID = '1';   
         for i in 0 to 15 loop
-        if j = 24 then 
-            S_NOC_END_MSG <= '1';
-        else
-            S_NOC_END_MSG <= '0';
-        end if;
             S_NOC_DATA <= conv_std_logic_vector(i, 32);
             S_NOC_WE <= '1';
             wait for 2*clk_period;
@@ -200,6 +186,59 @@ begin
         
         S_NOC_WE <= '0';
         wait for 42*clk_period;
-   end loop;
+    --end loop;
 end process;
+-----------------------------------------------------------------------
+--ajout de end_of_msg en milieu d'un barette
+--end_msg_test: process 
+--begin 
+--    for j in 1 to 144 loop
+--        wait until S_NOC_VALID = '1';
+           
+--        for i in 0 to 15 loop
+--            if j = 24 then 
+--                S_NOC_END_MSG <= '1';
+--            else
+--                S_NOC_END_MSG <= '0';
+--            end if;
+--            S_NOC_DATA <= conv_std_logic_vector(i, 32);
+--            S_NOC_WE <= '1';
+--            wait for 2*clk_period;
+--        end loop;
+        
+--        S_NOC_WE <= '0';
+--        wait for 42*clk_period;
+--   end loop;
+--end process;
+-----------------------------------------------------------------------
+--ajout de end_of_msg pour une fifo non pleine.
+--end_msg_test: process 
+--begin 
+
+--        wait until S_NOC_VALID = '1';    
+--        for i in 0 to 15 loop
+--            if i = 10 then 
+--                S_NOC_END_MSG <= '1';
+--            else 
+--                S_NOC_END_MSG <= '0';
+--            end if;
+--            S_NOC_DATA <= conv_std_logic_vector(i, 32);
+--            S_NOC_WE <= '1';
+--            wait for 2*clk_period;
+--        end loop;
+        
+--        S_NOC_WE <= '0';
+--        wait for 42*clk_period;
+--end process;
+-----------------------------------------------------------------------
+cpu_write_process: process
+begin 
+    --wait for 100 us;
+    for k in 0 to 7 loop
+    wait for 100 us;
+        READ <= conv_std_logic_vector(k*8, 32);
+        
+    end loop;
+end process;
+
 end Behavioral;
