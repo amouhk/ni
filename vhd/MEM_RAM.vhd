@@ -65,7 +65,7 @@ begin
 
         if RESET = '1' then
             for i in 0 to 9000 loop
-                mem_im(i) <= X"00";
+                mem_im(i)  <= "00000000";
             end loop;
         else
             if CLK'event and CLK = '1' then

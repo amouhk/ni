@@ -244,13 +244,15 @@ begin
             if (unsigned(nb_mots_ecrits_q) = BUFFER_SIZE) or end_msg_q = '1' then 
                 M_IP_WE             <= '1';
                 M_IP_ADDR           <= descript_write_q and not(DESC_SIZE);
-                M_IP_DATA           <= nb_mots_ecrits_q;
                 descript_write_d    <= conv_std_logic_vector(unsigned(descript_write_q) + 8 ,32) and  mask;
                 end_msg_d           <= '0';         
                 offset_d            <= (others => '0');
                 nb_mots_ecrits_d    <= (others => '0');
                 if end_msg_q = '1' then
+                    M_IP_DATA <= X"8100" & nb_mots_ecrits_q(15 downto 0);
                     M_irq <= '1';
+                else
+                    M_IP_DATA <= X"0100" & nb_mots_ecrits_q(15 downto 0);
                 end if;
             end if;
                 

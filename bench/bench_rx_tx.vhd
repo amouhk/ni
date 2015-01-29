@@ -38,20 +38,23 @@ end bench_rx_tx;
 
 architecture Behavioral of bench_rx_tx is
     component tx port(
-        CPU_addr     : in STD_LOGIC_VECTOR (31 downto 0);
-        CPU_we       : in STD_LOGIC;
-        rst          : in STD_LOGIC;
-        clk          : in STD_LOGIC;
-        RAM_DATA     : in STD_LOGIC_VECTOR (31 downto 0);
+        rst          : in  STD_LOGIC;
+        clk          : in  STD_LOGIC;
+        -- Signaux de la RAM
+        RAM_DATA     : in  STD_LOGIC_VECTOR (31 downto 0);
         RAM_RE       : out STD_LOGIC;
         RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0);
-        NI_ack       : in STD_LOGIC;
+        -- Signaux communquant avec l'autre ni
+        NI_ack       : in  STD_LOGIC;
         NI_ready     : out STD_LOGIC;
         NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
         NI_we        : out STD_LOGIC;
         NI_eom       : out STD_LOGIC;
+        -- Signaux gérer par le CPU
+        RB_SIZE      : in  STD_LOGIC_VECTOR (31 downto 0);
+        WRITE        : in  STD_LOGIC_VECTOR (31 downto 0);
+        READ         : out STD_LOGIC_VECTOR (31 downto 0);
         irq          : out STD_LOGIC
-
    );
    end component;
    
@@ -74,9 +77,6 @@ architecture Behavioral of bench_rx_tx is
     component rx port (
         CLK             : in  std_logic;
         RESET           : in std_logic;
-        --entrees du CPU
-        CPU_addr        : in std_logic_vector(31 downto 0);
-        CPU_we          : in std_logic;
         --ni_tx_data
         S_NOC_READY     : in std_logic;
         S_NOC_VALID     : out std_logic;
@@ -90,7 +90,11 @@ architecture Behavioral of bench_rx_tx is
         M_IP_RE         : out std_logic;
         M_IP_ADDR       : out std_logic_vector(31 downto 0);
         M_IP_DATA       : out std_logic_vector(31 downto 0);
-        M_IP_RB         : in std_logic_vector(31 downto 0)
+        M_IP_RB         : in std_logic_vector(31 downto 0);
+        --Registres visibles à l'utilisateur
+        RB_SIZE         : in std_logic_vector(31 downto 0);
+        WRITE           : out std_logic_vector(31 downto 0);
+        READ            : in std_logic_vector(31 downto 0)
     );
     end component;
        
@@ -119,11 +123,13 @@ architecture Behavioral of bench_rx_tx is
 --signaux genere par le bench
     signal clk          : std_logic := '0';
     signal rst          : std_logic := '0';
-    signal CPU_addr_tx  : std_logic_vector(31 downto 0) := (others => '0');
-    signal CPU_we_tx    : STD_LOGIC := '0';
-    signal CPU_addr_rx  : std_logic_vector(31 downto 0) := (others => '0');
-    signal CPU_we_rx    : STD_LOGIC := '0';
-    
+    signal rb_size_tx   : std_logic_vector(31 downto 0) := (3 => '1', others => '0');
+    signal write_tx     : std_logic_vector(31 downto 0) := (others => '0');
+    signal read_tx      : std_logic_vector(31 downto 0) ;
+    signal rb_size_rx   : std_logic_vector(31 downto 0) := (3 => '1', others => '0');
+    signal write_rx     : std_logic_vector(31 downto 0);
+    signal read_rx      : std_logic_vector(31 downto 0) := (others => '0');
+
     signal din_ram      : std_logic_vector(31 downto 0) := (others => '0');
     signal din_ram_B    : std_logic_vector(31 downto 0) := (others => '0');
     signal addr_ram_B   : std_logic_vector(31 downto 0) := (others => '0');
@@ -165,8 +171,6 @@ architecture Behavioral of bench_rx_tx is
 begin
 
     u_tx : tx port map(
-        CPU_addr    => CPU_addr_tx,
-        CPU_we      => CPU_we_tx,
         rst         => rst,
         clk         => clk,
         RAM_DATA    => data_ram,
@@ -177,6 +181,9 @@ begin
         NI_data     => data_ni,
         NI_we       => we_ni,
         NI_EOM      => eom_ni,
+        RB_SIZE     => rb_size_tx,
+        WRITE       => write_tx,
+        READ        => read_tx,
         irq         => irq_tx
     );
     
@@ -218,8 +225,6 @@ begin
     u_rx: rx port map (
         CLK         => CLK,
         RESET       => rst,
-        CPU_addr    => CPU_addr_rx,
-        CPU_we      => CPU_we_rx,
         --ni_tx_data
         S_NOC_READY     => ready_ni,
         S_NOC_VALID     => ack_ni,
@@ -233,15 +238,18 @@ begin
         M_IP_RE         => M_IP_RE,
         M_IP_ADDR       => M_IP_ADDR,
         M_IP_DATA       => M_IP_DATA,
-        M_IP_RB         => M_IP_RB
+        M_IP_RB         => M_IP_RB,
+        --Registres visibles à l'utilisateur
+        RB_SIZE         => rb_size_rx,
+        WRITE           => write_rx,
+        READ            => read_rx
     );
-
-
 
 
     CLK <= not(CLK) after clk_demi_period; -- periode 10 ns
     Rst <= '1', '0' after 50 ns;
-
+    -- lancement de la simu
+    write_tx <= (0 => '1', others => '0') when (ram_fill = '1')  else (others => '0');
 
 
 -----------------------------------------------------------------------------------------------------------
@@ -294,22 +302,6 @@ begin
         end loop;
         -- On previent les autres processus que la ram est remplie : on peut commençer la simulation
         ram_fill <= '1';
-        -- On arrete le processus
-        wait on rst;
-    end process;
-
-
------------------------------------------------------------------------------------------------------------
-    -- Processus qui lance la simu : on effectue l'action du CPU
-    start : process
-    begin
-        wait on ram_fill;
-        -- On fait bugger le NI en lui donnant une valeur que le CPU n'est pas cense donner
-        -- De cette maniere le NI transmet indéfiniment les donnees
-        CPU_we_tx <= '1';
-        CPU_addr_tx <= X"00000001";
-        wait for clk_period;
-        CPU_we_tx <= '0';
         -- On arrete le processus
         wait on rst;
     end process;

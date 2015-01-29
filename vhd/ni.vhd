@@ -40,7 +40,8 @@ entity ni is
         rst             : in STD_LOGIC;
         -- Ports du CPU
         cpu_addr        : in STD_LOGIC_VECTOR (31 downto 0);
-        cpu_data        : inout STD_LOGIC_VECTOR (31 downto 0);
+        cpu_data_in     : in STD_LOGIC_VECTOR (31 downto 0);
+        cpu_data_out    : out STD_LOGIC_VECTOR (31 downto 0);
         cpu_we          : in STD_LOGIC;
         cpu_re          : in STD_LOGIC;
         irq             : out STD_LOGIC;
@@ -120,7 +121,33 @@ architecture Behavioral of ni is
     );
     end component;
     
-    
+--     On définit les registres du NI comme des cellules mémoires
+--     Tout les registres communs sont de la forme  |TX|RX|
+--
+--    (0) NI_RX_FIFO_DATA       Written into by the outerworld, slave access
+--    (1) NI_RX_FIFO_STATUS     Number of items into the fifo, read only
+--    (2) NI_RX_FIFO_SIZE       Number of slots of the fifo, a read only constant
+--    (3) NI_RX_BUFFER_ADDR     Ring buffer address
+--    (4) NI_RX_BUFFER_SIZE     size (256*4)
+--    (5) NI_RX_BUFFER_START    start index (where to write)
+--    (6) NI_RX_BUFFER_END      end index (where to read)
+
+--    (7) NI_TX_FIFO_STATUS
+--    (8) NI_TX_FIFO_SIZE
+--    (9) NI_TX_BUFFER_ADDR     Ring buffer address
+--    (10) NI_TX_BUFFER_SIZE    size (256*4)
+--    (11) NI_TX_BUFFER_START   start index (where to write)
+--    (12) NI_TX_BUFFER_END     end index (where to read)
+
+--    (13) NI_IRQ_CAUSE         Reason why we raised an interrupt (4 different)
+--    (14) NI_IRQ_ENABLE
+--    (15) NI_WHO_AM_I          Placeholder for future discovery protocol
+--    (16) NI_READY             aip sets it to 1 after startup to indicate it is initialized and ready
+
+    type registre is array(0 to 16) of std_logic_vector(31 downto 0);
+
+    signal registres    : registre;
+        
     -- Signaux de jonction
     -- Pour le tx
     signal irq_tx       : std_logic;
@@ -128,22 +155,28 @@ architecture Behavioral of ni is
     signal data_ram_tx  : std_logic_vector(31 downto 0);
     signal re_ram_tx    : std_logic;
     signal addr_ram_tx  : std_logic_vector(31 downto 0);
+    signal offset_tx    : std_logic_vector(31 downto 0);
+    
     
     signal ack_ni_tx    : std_logic;
     signal ready_ni_tx  : std_logic;
     signal data_ni_tx   : std_logic_vector(31 downto 0);
     signal we_ni_tx     : std_logic;
     signal eom_ni_tx    : std_logic;
+    
+    signal rb_size_tx   : std_logic_vector(31 downto 0);
+    signal write_tx     : std_logic_vector(31 downto 0);
+    signal read_tx      : std_logic_vector(31 downto 0);
     -- Pour le rx
     signal CPU_addr_rx  : std_logic_vector(31 downto 0);
     signal CPU_we_rx    : std_logic;
     signal irq_rx       : std_logic;
-    
     signal data_ram_rx  : std_logic_vector(31 downto 0);
     signal rb_ram_rx    : std_logic_vector(31 downto 0);
     signal re_ram_rx    : std_logic;
     signal we_ram_rx    : std_logic;
     signal addr_ram_rx  : std_logic_vector(31 downto 0);
+    signal offset_rx    : std_logic_vector(31 downto 0);
     
     signal ack_ni_rx    : std_logic;
     signal ready_ni_rx  : std_logic;
@@ -151,47 +184,11 @@ architecture Behavioral of ni is
     signal we_ni_rx     : std_logic;
     signal eom_ni_rx    : std_logic;
     
+    signal rb_size_rx   : std_logic_vector(31 downto 0);
+    signal write_rx     : std_logic_vector(31 downto 0);
+    signal read_rx      : std_logic_vector(31 downto 0);
     
-    -- Les registres
-    -- Tout les registres communs sont de la forme  |TX|RX|
-    signal NI_RX_FIFO_DATA_D, NI_RX_FIFO_DATA_Q         : std_logic_vector(31 downto 0);--     --Written into by the outerworld, slave access
-    signal NI_RX_FIFO_STATUS_D, NI_RX_FIFO_STATUS_Q     : std_logic_vector(31 downto 0);--    --Number of items into the fifo, read only
-    signal NI_RX_FIFO_SIZE_D , NI_RX_FIFO_SIZE_Q        : std_logic_vector(31 downto 0);--   --Number of slots of the fifo, a read only constant
-    signal NI_RX_BUFFER_ADDR_D, NI_RX_BUFFER_ADDR_Q     : std_logic_vector(31 downto 0);    --Ring buffer address
-    signal NI_RX_BUFFER_SIZE_D, NI_RX_BUFFER_SIZE_Q     : std_logic_vector(31 downto 0);    --size (256*4)
-    signal NI_RX_BUFFER_START_D, NI_RX_BUFFER_START_Q   : std_logic_vector(31 downto 0);    -- start index (where to write)
-    signal NI_RX_BUFFER_END_D , NI_RX_BUFFER_END_Q      : std_logic_vector(31 downto 0);    --end index (where to read)
-
-    signal NI_TX_FIFO_STATUS_D, NI_TX_FIFO_STATUS_Q     : std_logic_vector(31 downto 0);--
-    signal NI_TX_FIFO_SIZE_D, NI_TX_FIFO_SIZE_Q         : std_logic_vector(31 downto 0);--
-    signal NI_TX_BUFFER_ADDR_D, NI_TX_BUFFER_ADDR_Q     : std_logic_vector(31 downto 0);      --Ring buffer address
-    signal NI_TX_BUFFER_SIZE_D, NI_TX_BUFFER_SIZE_Q     : std_logic_vector(31 downto 0);  --size (256*4)
-    signal NI_TX_BUFFER_START_D, NI_TX_BUFFER_START_Q   : std_logic_vector(31 downto 0);   -- start index (where to write)
-    signal NI_TX_BUFFER_END_D, NI_TX_BUFFER_END_Q       : std_logic_vector(31 downto 0);   --end index (where to read)
-
-    signal NI_IRQ_CAUSE_D, NI_IRQ_CAUSE_Q               : std_logic_vector(31 downto 0);     --Reason why we raised an interrupt (4 different)
-    signal NI_IRQ_ENABLE_D, NI_IRQ_ENABLE_Q             : std_logic_vector(31 downto 0);
-    signal NI_WHO_AM_I_D, NI_WHO_AM_I_Q                 : std_logic_vector(31 downto 0);    --Placeholder for future discovery protocol
-    signal NI_READY_D, NI_READY_Q                       : std_logic_vector(31 downto 0);     --aip sets it to 1 after startup to indicate it is initialized and ready
-
-    -- Host rx ring buffer
-    signal NI_HOST_RX_BUFFER_ADDR_D, NI_HOST_RX_BUFFER_ADDR_Q       : std_logic_vector(31 downto 0);    --Ring buffer address
-    signal NI_HOST_RX_BUFFER_SIZE_D, NI_HOST_RX_BUFFER_SIZE_Q       : std_logic_vector(31 downto 0);   -- size
-    signal NI_HOST_RX_BUFFER_START_D, NI_HOST_RX_BUFFER_START_Q     : std_logic_vector(31 downto 0);    --start index (where to write)
-    signal NI_HOST_RX_BUFFER_END_D, NI_HOST_RX_BUFFER_END_Q         : std_logic_vector(31 downto 0);  --end index (where to read)
-
-    -- Host tx ring buffer
-    signal NI_HOST_TX_BUFFER_ADDR_D, NI_HOST_TX_BUFFER_ADDR_Q        : std_logic_vector(31 downto 0);    --Ring buffer address
-    signal NI_HOST_TX_BUFFER_SIZE_D, NI_HOST_TX_BUFFER_SIZE_Q        : std_logic_vector(31 downto 0);    --size
-    signal NI_HOST_TX_BUFFER_START_D, NI_HOST_TX_BUFFER_START_Q      : std_logic_vector(31 downto 0);   --start index (where to write)
-    signal NI_HOST_TX_BUFFER_END_D, NI_HOST_TX_BUFFER_END_Q          : std_logic_vector(31 downto 0);   --end index (where to read)
-
-    -- Host interrupt
-    signal NI_HOST_IRQ_CAUSE_D, NI_HOST_IRQ_CAUSE_Q             : std_logic_vector(31 downto 0);   --Reason why we raised an interrupt
-    signal NI_HOST_IRQ_ENABLE_D, NI_HOST_IRQ_ENABLE_Q           : std_logic_vector(31 downto 0);
-
 begin
-
 
     u_tx : tx port map(
         rst         => rst,
@@ -204,9 +201,9 @@ begin
         NI_data     => data_ni_tx,
         NI_we       => we_ni_tx,
         NI_EOM      => eom_ni_tx,
-        RB_SIZE     => NI_TX_BUFFER_SIZE_Q,
-        WRITE       => NI_TX_BUFFER_START_Q,
-        READ        => NI_TX_BUFFER_END_D,
+        RB_SIZE     => rb_size_tx, --registres(10)
+        WRITE       => write_tx, --registres(11)
+        READ        => read_tx, --registres(12)
         irq         => irq_tx
     );
     
@@ -228,9 +225,9 @@ begin
         M_IP_DATA       => data_ram_rx,
         M_IP_RB         => rb_ram_rx,
         --Registres visibles à l'utilisateur
-        RB_SIZE         => NI_RX_BUFFER_SIZE_Q,
-        WRITE           => NI_RX_BUFFER_START_Q,
-        READ            => NI_RX_BUFFER_END_D
+        RB_SIZE     => rb_size_rx, --registres(4)
+        WRITE       => write_rx, --registres(5)
+        READ        => read_rx --registres(6)
     );
 
 
@@ -241,13 +238,13 @@ begin
     ram_we_tx       <= '0';
     ram_re_tx       <= re_ram_tx;
     data_ram_tx     <= ram_data_tx;
-    ram_addr_tx     <= conv_std_logic_vector(unsigned(addr_ram_tx) + unsigned(NI_TX_BUFFER_ADDR_Q),32) ;
+    ram_addr_tx     <= conv_std_logic_vector(unsigned(addr_ram_tx) + unsigned(offset_tx),32) ;
     -- En rx
     ram_we_rx       <= we_ram_rx;
     ram_re_rx       <= re_ram_rx;
     rb_ram_rx       <= ram_data_in_rx;
     ram_data_out_rx <= data_ram_rx;
-    ram_addr_rx     <= conv_std_logic_vector(unsigned(addr_ram_rx) + unsigned(NI_RX_BUFFER_ADDR_Q),32) ;
+    ram_addr_rx     <= conv_std_logic_vector(unsigned(addr_ram_rx) + unsigned(offset_rx),32) ;
     -- Ports pour l'autre NI
     -- En tx
     ack_ni_tx       <= NI_ack_tx;
@@ -260,276 +257,137 @@ begin
     ready_ni_rx     <= NI_ready_rx;
     data_ni_rx      <= NI_data_rx;
     we_ni_rx        <= NI_we_rx;
-    eom_ni_rx        <= NI_eom_rx;
-    
-    
-    -- Gestion des interruptions
-    NI_IRQ_CAUSE_D(0)   <= irq_rx;
-    NI_IRQ_CAUSE_D(1)   <= irq_tx;
-    irq                 <= (NI_IRQ_CAUSE_Q(0) and NI_IRQ_ENABLE_D(0)) or (NI_IRQ_CAUSE_Q(1) and NI_IRQ_ENABLE_D(1));
-
------------------------------------------------------------------------------------------------------------
-    -- Process séquentiel du NI
-    sync : process(clk, rst)
-    begin
-        if (CLK'event and CLK = '1') then
-            if rst = '1' then
-                NI_RX_FIFO_DATA_Q       <= (others => '0');
-                NI_RX_FIFO_STATUS_Q     <= (others => '0');
-                NI_RX_FIFO_SIZE_Q       <= (4 => '1', others => '0');
-                NI_RX_BUFFER_ADDR_Q     <= (others => '0');
-                NI_RX_BUFFER_SIZE_Q     <= (10 => '1', others => '0');
-                NI_RX_BUFFER_START_Q    <= (others => '0');
-                NI_RX_BUFFER_END_Q      <= (others => '0');
-            
-                NI_TX_FIFO_STATUS_Q     <= (others => '0');
-                NI_TX_FIFO_SIZE_Q       <= (4 => '1', others => '0');
-                NI_TX_BUFFER_ADDR_Q     <= (others => '0');
-                NI_TX_BUFFER_SIZE_Q     <= (10 => '1', others => '0');
-                NI_TX_BUFFER_START_Q    <= (others => '0');
-                NI_TX_BUFFER_END_Q      <= (others => '0');
-            
-                NI_IRQ_CAUSE_Q          <= (others => '0');
-                NI_IRQ_ENABLE_Q         <= (0 => '1', 1 => '1', others => '0');
-                NI_WHO_AM_I_Q           <= (others => '0');
-                NI_READY_Q              <= (others => '0');
-            
-                NI_HOST_RX_BUFFER_ADDR_Q    <= (others => '0');
-                NI_HOST_RX_BUFFER_SIZE_Q    <= (4 => '1', others => '0');
-                NI_HOST_RX_BUFFER_START_Q   <= (others => '0');
-                NI_HOST_RX_BUFFER_END_Q     <= (others => '0');
-            
-                NI_HOST_TX_BUFFER_ADDR_Q    <= (others => '0');
-                NI_HOST_TX_BUFFER_SIZE_Q    <= (4 => '1', others => '0');
-                NI_HOST_TX_BUFFER_START_Q   <= (others => '0');
-                NI_HOST_TX_BUFFER_END_Q     <= (others => '0');
-            
-                NI_HOST_IRQ_CAUSE_Q         <= (others => '0');
-                NI_HOST_IRQ_ENABLE_Q        <= (others => '0');
-                
-            else
-                NI_RX_FIFO_DATA_Q       <= NI_RX_FIFO_DATA_D;
-                NI_RX_FIFO_STATUS_Q     <= NI_RX_FIFO_STATUS_D;
-                NI_RX_FIFO_SIZE_Q       <= NI_RX_FIFO_SIZE_D;
-                NI_RX_BUFFER_ADDR_Q     <= NI_RX_BUFFER_ADDR_D;
-                NI_RX_BUFFER_SIZE_Q     <= NI_RX_BUFFER_SIZE_D;
-                NI_RX_BUFFER_START_Q    <= NI_RX_BUFFER_START_D;
-                NI_RX_BUFFER_END_Q      <= NI_RX_BUFFER_END_D;
-            
-                NI_TX_FIFO_STATUS_Q     <= NI_TX_FIFO_STATUS_D;
-                NI_TX_FIFO_SIZE_Q       <= NI_TX_FIFO_SIZE_D;
-                NI_TX_BUFFER_ADDR_Q     <= NI_TX_BUFFER_ADDR_D;
-                NI_TX_BUFFER_SIZE_Q     <= NI_TX_BUFFER_SIZE_D;
-                NI_TX_BUFFER_START_Q    <= NI_TX_BUFFER_START_D;
-                NI_TX_BUFFER_END_Q      <= NI_TX_BUFFER_END_D;
-            
-                NI_IRQ_CAUSE_Q          <= NI_IRQ_CAUSE_D;
-                NI_IRQ_ENABLE_Q         <= NI_IRQ_ENABLE_D;
-                NI_WHO_AM_I_Q           <= NI_WHO_AM_I_D;
-                NI_READY_Q              <= NI_READY_D;
-            
-                NI_HOST_RX_BUFFER_ADDR_Q    <= NI_HOST_RX_BUFFER_ADDR_D;
-                NI_HOST_RX_BUFFER_SIZE_Q    <= NI_HOST_RX_BUFFER_SIZE_D;
-                NI_HOST_RX_BUFFER_START_Q   <= NI_HOST_RX_BUFFER_START_D;
-                NI_HOST_RX_BUFFER_END_Q     <= NI_HOST_RX_BUFFER_END_D;
-            
-                NI_HOST_TX_BUFFER_ADDR_Q    <= NI_HOST_TX_BUFFER_ADDR_D;
-                NI_HOST_TX_BUFFER_SIZE_Q    <= NI_HOST_TX_BUFFER_SIZE_D;
-                NI_HOST_TX_BUFFER_START_Q   <= NI_HOST_TX_BUFFER_START_D;
-                NI_HOST_TX_BUFFER_END_Q     <= NI_HOST_TX_BUFFER_END_D;
-            
-                NI_HOST_IRQ_CAUSE_Q         <= NI_HOST_IRQ_CAUSE_D;
-                NI_HOST_IRQ_ENABLE_Q        <= NI_HOST_IRQ_ENABLE_D;
-            end if ;
-        end if ;
-        
-                        
-    if falling_edge(rst) then
-        NI_READY_Q(0) <= '1';
-    end if;
-    
-    end process sync;
-    
-    
------------------------------------------------------------------------------------------------------------
-    -- Branchement des registres
-    register_plug : process(NI_RX_FIFO_DATA_Q, NI_RX_FIFO_STATUS_Q, NI_RX_FIFO_SIZE_Q, NI_RX_BUFFER_ADDR_Q,
-                            NI_RX_BUFFER_SIZE_Q, NI_RX_BUFFER_START_Q, NI_RX_BUFFER_END_Q, NI_TX_FIFO_STATUS_Q,
-                            NI_TX_FIFO_SIZE_Q, NI_TX_BUFFER_ADDR_Q, NI_TX_BUFFER_SIZE_Q, NI_TX_BUFFER_START_Q,
-                            NI_TX_BUFFER_END_Q, NI_IRQ_CAUSE_Q, NI_IRQ_ENABLE_Q, NI_WHO_AM_I_Q,
-                            NI_READY_Q, NI_HOST_RX_BUFFER_ADDR_Q, NI_HOST_RX_BUFFER_SIZE_Q, NI_HOST_RX_BUFFER_START_Q,
-                            NI_HOST_RX_BUFFER_END_Q, NI_HOST_TX_BUFFER_ADDR_Q, NI_HOST_TX_BUFFER_SIZE_Q, NI_HOST_TX_BUFFER_START_Q,
-                            NI_HOST_TX_BUFFER_END_Q, NI_HOST_IRQ_CAUSE_Q, NI_HOST_IRQ_ENABLE_Q
-                            )
-        begin                    
-            NI_RX_FIFO_DATA_D       <= NI_RX_FIFO_DATA_Q;
-            NI_RX_FIFO_STATUS_D     <= NI_RX_FIFO_STATUS_Q;
-            NI_RX_FIFO_SIZE_D       <= NI_RX_FIFO_SIZE_Q;
-            NI_RX_BUFFER_ADDR_D     <= NI_RX_BUFFER_ADDR_Q;
-            NI_RX_BUFFER_SIZE_D     <= NI_RX_BUFFER_SIZE_Q;
-            NI_RX_BUFFER_START_D    <= NI_RX_BUFFER_START_Q;
-            NI_RX_BUFFER_END_D      <= NI_RX_BUFFER_END_Q;
-        
-            NI_TX_FIFO_STATUS_D     <= NI_TX_FIFO_STATUS_Q;
-            NI_TX_FIFO_SIZE_D       <= NI_TX_FIFO_SIZE_Q;
-            NI_TX_BUFFER_ADDR_D     <= NI_TX_BUFFER_ADDR_Q;
-            NI_TX_BUFFER_SIZE_D     <= NI_TX_BUFFER_SIZE_Q;
-            NI_TX_BUFFER_START_D    <= NI_TX_BUFFER_START_Q;
-            NI_TX_BUFFER_END_D      <= NI_TX_BUFFER_END_Q;
-        
-            NI_IRQ_CAUSE_D          <= NI_IRQ_CAUSE_Q;
-            NI_IRQ_ENABLE_D         <= NI_IRQ_ENABLE_Q;
-            NI_WHO_AM_I_D           <= NI_WHO_AM_I_Q;
-            NI_READY_D              <= NI_READY_Q;
-        
-            NI_HOST_RX_BUFFER_ADDR_D    <= NI_HOST_RX_BUFFER_ADDR_Q;
-            NI_HOST_RX_BUFFER_SIZE_D    <= NI_HOST_RX_BUFFER_SIZE_Q;
-            NI_HOST_RX_BUFFER_START_D   <= NI_HOST_RX_BUFFER_START_Q;
-            NI_HOST_RX_BUFFER_END_D     <= NI_HOST_RX_BUFFER_END_Q;
-        
-            NI_HOST_TX_BUFFER_ADDR_D    <= NI_HOST_TX_BUFFER_ADDR_Q;
-            NI_HOST_TX_BUFFER_SIZE_D    <= NI_HOST_TX_BUFFER_SIZE_Q;
-            NI_HOST_TX_BUFFER_START_D   <= NI_HOST_TX_BUFFER_START_Q;
-            NI_HOST_TX_BUFFER_END_D     <= NI_HOST_TX_BUFFER_END_Q;
-        
-            NI_HOST_IRQ_CAUSE_D         <= NI_HOST_IRQ_CAUSE_Q;
-            NI_HOST_IRQ_ENABLE_D        <= NI_HOST_IRQ_ENABLE_Q;
-        end process register_plug ;
+    eom_ni_rx       <= NI_eom_rx;
     
 
 -----------------------------------------------------------------------------------------------------------
-    -- Gestion des commandes CPU
-    CPU_commande : process( clk, CPU_addr, CPU_data, CPU_we, CPU_re,
-                            NI_RX_FIFO_DATA_Q, NI_RX_FIFO_STATUS_Q, NI_RX_FIFO_SIZE_Q, NI_RX_BUFFER_ADDR_Q,
-                            NI_RX_BUFFER_SIZE_Q, NI_RX_BUFFER_START_Q, NI_RX_BUFFER_END_Q, NI_TX_FIFO_STATUS_Q,
-                            NI_TX_FIFO_SIZE_Q, NI_TX_BUFFER_ADDR_Q, NI_TX_BUFFER_SIZE_Q, NI_TX_BUFFER_START_Q,
-                            NI_TX_BUFFER_END_Q, NI_IRQ_CAUSE_Q, NI_IRQ_ENABLE_Q, NI_WHO_AM_I_Q,
-                            NI_READY_Q, NI_HOST_RX_BUFFER_ADDR_Q, NI_HOST_RX_BUFFER_SIZE_Q, NI_HOST_RX_BUFFER_START_Q,
-                            NI_HOST_RX_BUFFER_END_Q, NI_HOST_TX_BUFFER_ADDR_Q, NI_HOST_TX_BUFFER_SIZE_Q, NI_HOST_TX_BUFFER_START_Q,
-                            NI_HOST_TX_BUFFER_END_Q, NI_HOST_IRQ_CAUSE_Q, NI_HOST_IRQ_ENABLE_Q
-                            )
+    -- Process séquentiel du NI de gestion des commandes CPU
+    -- Ce process gère également les affectations des registres
+    CPU_commande : process(clk, rst, CPU_addr, CPU_data_in, CPU_we, CPU_re, registres)
         begin
-            if (CLK'event and CLK = '1') then
-                if(CPU_we = '1') then
-                    case CPU_addr is
-                        when X"00000000" =>
-                            NI_RX_FIFO_DATA_D <= CPU_data;
-                        when X"00000004" =>
-                            -- Variable read only
-                        when X"00000008" =>
-                            -- Variable read only
-                        when X"0000000c" =>
-                            NI_RX_BUFFER_ADDR_D <= CPU_data;
-                        when X"00000010" =>
-                            NI_RX_BUFFER_SIZE_D <= CPU_data;
-                        when X"00000014" =>
-                            -- Variable read only
-                        when X"00000018" =>
-                            NI_RX_BUFFER_END_D <= CPU_data;
-                        when X"0000001c" =>
-                            NI_TX_FIFO_STATUS_D <= CPU_data;
-                        when X"00000020" =>
-                            NI_TX_FIFO_SIZE_D <= CPU_data;
-                        when X"00000024" =>
-                            NI_TX_BUFFER_ADDR_D <= CPU_data;
-                        when X"00000028" =>
-                            NI_TX_BUFFER_SIZE_D <= CPU_data;
-                        when X"0000002c" =>
-                            NI_TX_BUFFER_START_D <= CPU_data;
-                        when X"00000030" =>
-                            -- Variable read only
-                        when X"00000034" =>
-                            NI_IRQ_CAUSE_D <= CPU_data;
-                        when X"00000038" =>
-                            NI_IRQ_ENABLE_D <= CPU_data;
-                        when X"0000003c" =>
-                            NI_WHO_AM_I_D <= CPU_data;
-                        when X"00000040" =>
-                            -- Variable read only NI_READY_D 
-                        when X"00000044" =>
-                            NI_HOST_RX_BUFFER_ADDR_D <= CPU_data;
-                        when X"00000048" =>
-                            NI_HOST_RX_BUFFER_SIZE_D <= CPU_data;
-                        when X"0000004c" =>
-                            NI_HOST_RX_BUFFER_START_D <= CPU_data;
-                        when X"00000050" =>
-                            NI_HOST_RX_BUFFER_END_D <= CPU_data;
-                        when X"00000054" =>
-                            NI_HOST_TX_BUFFER_ADDR_D <= CPU_data;
-                        when X"00000058" =>
-                            NI_HOST_TX_BUFFER_SIZE_D <= CPU_data;
-                        when X"0000005c" =>
-                            NI_HOST_TX_BUFFER_START_D <= CPU_data;
-                        when X"00000060" =>
-                            NI_HOST_TX_BUFFER_END_D <= CPU_data;
-                        when X"00000064" =>
-                            NI_HOST_IRQ_CAUSE_D <= CPU_data;
-                        when X"00000068" =>
-                            NI_HOST_IRQ_ENABLE_D <= CPU_data;
-                        when others =>
-                        -- On sort de la zone autorisée
-                    end case;
-                end if;
-                
-                if(CPU_re = '1') then
-                    case CPU_addr is
-                        when X"00000000" =>
-                            CPU_data <= NI_RX_FIFO_DATA_Q;
-                        when X"00000004" =>
-                            CPU_data <= NI_RX_FIFO_STATUS_Q;
-                        when X"00000008" =>
-                            CPU_data <= NI_RX_FIFO_SIZE_Q;
-                        when X"0000000c" =>
-                            CPU_data <= NI_RX_BUFFER_ADDR_Q;
-                        when X"00000010" =>
-                            CPU_data <= NI_RX_BUFFER_SIZE_Q;
-                        when X"00000014" =>
-                            CPU_data <= NI_RX_BUFFER_START_Q;
-                        when X"00000018" =>
-                            CPU_data <= NI_RX_BUFFER_END_Q;
-                        when X"0000001c" =>
-                            CPU_data <= NI_TX_FIFO_STATUS_Q;
-                        when X"00000020" =>
-                            CPU_data <= NI_TX_FIFO_SIZE_Q;
-                        when X"00000024" =>
-                            CPU_data <= NI_TX_BUFFER_ADDR_Q;
-                        when X"00000028" =>
-                            CPU_data <= NI_TX_BUFFER_SIZE_Q;
-                        when X"0000002c" =>
-                            CPU_data <= NI_TX_BUFFER_START_Q;
-                        when X"00000030" =>
-                            CPU_data <= NI_TX_BUFFER_END_Q;
-                        when X"00000034" =>
-                            CPU_data <= NI_IRQ_CAUSE_Q;
-                        when X"00000038" =>
-                            CPU_data <= NI_IRQ_ENABLE_Q;
-                        when X"0000003c" =>
-                            CPU_data <= NI_WHO_AM_I_Q;
-                        when X"00000040" =>
-                            CPU_data <= NI_READY_Q;
-                        when X"00000044" =>
-                            CPU_data <= NI_HOST_RX_BUFFER_ADDR_Q;
-                        when X"00000048" =>
-                            CPU_data <= NI_HOST_RX_BUFFER_SIZE_Q;
-                        when X"0000004c" =>
-                            CPU_data <= NI_HOST_RX_BUFFER_START_Q;
-                        when X"00000050" =>
-                            CPU_data <= NI_HOST_RX_BUFFER_END_Q;
-                        when X"00000054" =>
-                            CPU_data <= NI_HOST_TX_BUFFER_ADDR_Q;
-                        when X"00000058" =>
-                            CPU_data <= NI_HOST_TX_BUFFER_SIZE_Q;
-                        when X"0000005c" =>
-                            CPU_data <= NI_HOST_TX_BUFFER_START_Q;
-                        when X"00000060" =>
-                            CPU_data <= NI_HOST_TX_BUFFER_END_Q;
-                        when X"00000064" =>
-                            CPU_data <= NI_HOST_IRQ_CAUSE_Q;
-                        when X"00000068" =>
-                            CPU_data <= NI_HOST_IRQ_ENABLE_Q;
-                        when others =>
+            if rst = '1' then
+                rb_size_rx      <= (others => '0');
+                read_rx         <= (others => '0');
+                rb_size_tx      <= (others => '0');
+                write_tx        <= (others => '0');
+            
+                registres(0)    <= (others => '0');
+                registres(1)    <= (others => '0');
+                registres(2)    <= (4 => '1', others => '0');
+                registres(3)    <= (others => '0');
+                registres(4)    <= (3 => '1', others => '0');
+                registres(5)    <= (others => '0');
+                registres(6)    <= (others => '0');
+            
+                registres(7)    <= (others => '0');
+                registres(8)    <= (4 => '1', others => '0');
+                registres(9)    <= (others => '0');
+                registres(10)   <= (3 => '1', others => '0');
+                registres(11)   <= (others => '0');
+                registres(12)   <= (others => '0');
+            
+                registres(13)   <= (others => '0');
+                registres(14)   <= (0 => '1', 1 => '1', others => '0');
+                registres(15)   <= (others => '0');
+                registres(16)   <= (0 => '1', others => '0');            
+            else
+                if (CLK'event and CLK = '1') then
+                    -- in
+                    offset_rx       <= registres(3);
+                    rb_size_rx      <= registres(4);
+                    read_rx         <= registres(6);
+                    offset_tx       <= registres(9);
+                    rb_size_tx      <= registres(10);
+                    write_tx        <= registres(11);
+                    irq  <= (registres(13)(0) and registres(14)(0)) or (registres(13)(1) and registres(14)(1));
+                    -- out
+                    registres(5)        <= write_rx;
+                    registres(12)       <= read_tx;
+                    
+                    if(CPU_we = '1') then
+                        case CPU_addr is
+                            when X"00000000" =>
+                                registres(0) <= CPU_data_in;
+                            when X"00000004" =>
+                                -- Variable read only
+                            when X"00000008" =>
+                                -- Variable read only
+                            when X"0000000c" =>
+                                registres(3) <= CPU_data_in;
+                            when X"00000010" =>
+                                registres(4) <= CPU_data_in;
+                            when X"00000014" =>
+                                -- Variable read only
+                            when X"00000018" =>
+                                registres(6) <= CPU_data_in;
+                            when X"0000001c" =>
+                                registres(7) <= CPU_data_in;
+                            when X"00000020" =>
+                                registres(8) <= CPU_data_in;
+                            when X"00000024" =>
+                                registres(9) <= CPU_data_in;
+                            when X"00000028" =>
+                                registres(10) <= CPU_data_in;
+                            when X"0000002c" =>
+                                registres(11) <= CPU_data_in;
+                            when X"00000030" =>
+                                -- Variable read only
+                            when X"00000034" =>
+                                registres(13) <= CPU_data_in;
+                            when X"00000038" =>
+                                registres(14) <= CPU_data_in;
+                            when X"0000003c" =>
+                                registres(15) <= CPU_data_in;
+                            when X"00000040" =>
+                                -- Variable read only NI_READY_D 
+                            when others =>
                             -- On sort de la zone autorisée
-                    end case;
+                        end case;
+                    else
+                        registres(13)(0)    <= irq_rx;
+                        registres(13)(1)    <= irq_tx;
+                    end if;
+                    
+                    if(CPU_re = '1') then
+                        case CPU_addr is
+                            when X"00000000" =>
+                                CPU_data_out <= registres(0);
+                            when X"00000004" =>
+                                CPU_data_out <= registres(1);
+                            when X"00000008" =>
+                                CPU_data_out <= registres(2);
+                            when X"0000000c" =>
+                                CPU_data_out <= registres(3);
+                            when X"00000010" =>
+                                CPU_data_out <= registres(4);
+                            when X"00000014" =>
+                                CPU_data_out <= registres(5);
+                            when X"00000018" =>
+                                CPU_data_out <= registres(6);
+                            when X"0000001c" =>
+                                CPU_data_out <= registres(7);
+                            when X"00000020" =>
+                                CPU_data_out <= registres(8);
+                            when X"00000024" =>
+                                CPU_data_out <= registres(9);
+                            when X"00000028" =>
+                                CPU_data_out <= registres(10);
+                            when X"0000002c" =>
+                                CPU_data_out <= registres(11);
+                            when X"00000030" =>
+                                CPU_data_out <= registres(12);
+                            when X"00000034" =>
+                                CPU_data_out <= registres(13);
+                            when X"00000038" =>
+                                CPU_data_out <= registres(14);
+                            when X"0000003c" =>
+                                CPU_data_out <= registres(15);
+                            when X"00000040" =>
+                                CPU_data_out <= registres(16);
+                            when others =>
+                                -- On sort de la zone autorisée
+                        end case;
+                    end if;
                 end if;
             end if;
         end process CPU_commande ;

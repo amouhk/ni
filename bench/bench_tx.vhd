@@ -144,7 +144,7 @@ begin
     CLK <= not(CLK) after clk_demi_period; -- periode 10 ns
     Rst <= '1', '0' after 50 ns;
     rb_size <= X"00000008";
-    write   <= (0=> ram_fill, others => '0');
+    write   <= (0 => ram_fill, others => '0');
 
 -----------------------------------------------------------------------------------------------------------
     -- Processus qui remplit la memoire
