@@ -21,6 +21,9 @@
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
+use ieee.std_logic_unsigned.all;
+use ieee.std_logic_textio.all;
+use ieee.std_logic_arith.all;
 
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
@@ -50,7 +53,8 @@ entity ni is
         -- En rx
         ram_we_rx       : out STD_LOGIC;
         ram_re_rx       : out STD_LOGIC;
-        ram_data_rx     : out STD_LOGIC_VECTOR (31 downto 0);
+        ram_data_in_rx  : in  STD_LOGIC_VECTOR (31 downto 0);
+        ram_data_out_rx : out STD_LOGIC_VECTOR (31 downto 0);
         ram_addr_rx     : out STD_LOGIC_VECTOR (31 downto 0);
         -- Ports pour l'autre NI
         -- En tx
@@ -71,18 +75,22 @@ entity ni is
 architecture Behavioral of ni is
 
     component tx port(
-        rst          : in STD_LOGIC;
-        clk          : in STD_LOGIC;
-        CPU_addr     : in STD_LOGIC_VECTOR (31 downto 0);
-        CPU_we       : in STD_LOGIC;
-        RAM_DATA     : in STD_LOGIC_VECTOR (31 downto 0);
+        rst          : in  STD_LOGIC;
+        clk          : in  STD_LOGIC;
+        -- Signaux de la RAM
+        RAM_DATA     : in  STD_LOGIC_VECTOR (31 downto 0);
         RAM_RE       : out STD_LOGIC;
         RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0);
-        NI_ack       : in STD_LOGIC;
+        -- Signaux communquant avec l'autre ni
+        NI_ack       : in  STD_LOGIC;
         NI_ready     : out STD_LOGIC;
         NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
         NI_we        : out STD_LOGIC;
         NI_eom       : out STD_LOGIC;
+        -- Signaux gérer par le CPU
+        RB_SIZE      : in  STD_LOGIC_VECTOR (31 downto 0);
+        WRITE        : in  STD_LOGIC_VECTOR (31 downto 0);
+        READ         : out STD_LOGIC_VECTOR (31 downto 0);
         irq          : out STD_LOGIC
     );
     end component;
@@ -91,9 +99,6 @@ architecture Behavioral of ni is
     component rx port (
         CLK             : in  std_logic;
         RESET           : in std_logic;
-        --entrees du CPU
-        CPU_addr        : in std_logic_vector(31 downto 0);
-        CPU_we          : in std_logic;
         --ni_tx_data
         S_NOC_READY     : in std_logic;
         S_NOC_VALID     : out std_logic;
@@ -107,15 +112,17 @@ architecture Behavioral of ni is
         M_IP_RE         : out std_logic;
         M_IP_ADDR       : out std_logic_vector(31 downto 0);
         M_IP_DATA       : out std_logic_vector(31 downto 0);
-        M_IP_RB         : in std_logic_vector(31 downto 0)
+        M_IP_RB         : in std_logic_vector(31 downto 0);
+        --Registres visibles à l'utilisateur
+        RB_SIZE         : in std_logic_vector(31 downto 0);
+        WRITE           : out std_logic_vector(31 downto 0);
+        READ            : in std_logic_vector(31 downto 0)
     );
     end component;
     
     
     -- Signaux de jonction
     -- Pour le tx
-    signal CPU_addr_tx  : std_logic_vector(31 downto 0);
-    signal CPU_we_tx    : std_logic;
     signal irq_tx       : std_logic;
     
     signal data_ram_tx  : std_logic_vector(31 downto 0);
@@ -147,16 +154,16 @@ architecture Behavioral of ni is
     
     -- Les registres
     -- Tout les registres communs sont de la forme  |TX|RX|
-    signal NI_RX_FIFO_DATA_D, NI_RX_FIFO_DATA_Q         : std_logic_vector(31 downto 0);     --Written into by the outerworld, slave access
-    signal NI_RX_FIFO_STATUS_D, NI_RX_FIFO_STATUS_Q     : std_logic_vector(31 downto 0);    --Number of items into the fifo, read only
-    signal NI_RX_FIFO_SIZE_D , NI_RX_FIFO_SIZE_Q        : std_logic_vector(31 downto 0);   --Number of slots of the fifo, a read only constant
+    signal NI_RX_FIFO_DATA_D, NI_RX_FIFO_DATA_Q         : std_logic_vector(31 downto 0);--     --Written into by the outerworld, slave access
+    signal NI_RX_FIFO_STATUS_D, NI_RX_FIFO_STATUS_Q     : std_logic_vector(31 downto 0);--    --Number of items into the fifo, read only
+    signal NI_RX_FIFO_SIZE_D , NI_RX_FIFO_SIZE_Q        : std_logic_vector(31 downto 0);--   --Number of slots of the fifo, a read only constant
     signal NI_RX_BUFFER_ADDR_D, NI_RX_BUFFER_ADDR_Q     : std_logic_vector(31 downto 0);    --Ring buffer address
     signal NI_RX_BUFFER_SIZE_D, NI_RX_BUFFER_SIZE_Q     : std_logic_vector(31 downto 0);    --size (256*4)
     signal NI_RX_BUFFER_START_D, NI_RX_BUFFER_START_Q   : std_logic_vector(31 downto 0);    -- start index (where to write)
     signal NI_RX_BUFFER_END_D , NI_RX_BUFFER_END_Q      : std_logic_vector(31 downto 0);    --end index (where to read)
 
-    signal NI_TX_FIFO_STATUS_D, NI_TX_FIFO_STATUS_Q     : std_logic_vector(31 downto 0);
-    signal NI_TX_FIFO_SIZE_D, NI_TX_FIFO_SIZE_Q         : std_logic_vector(31 downto 0);
+    signal NI_TX_FIFO_STATUS_D, NI_TX_FIFO_STATUS_Q     : std_logic_vector(31 downto 0);--
+    signal NI_TX_FIFO_SIZE_D, NI_TX_FIFO_SIZE_Q         : std_logic_vector(31 downto 0);--
     signal NI_TX_BUFFER_ADDR_D, NI_TX_BUFFER_ADDR_Q     : std_logic_vector(31 downto 0);      --Ring buffer address
     signal NI_TX_BUFFER_SIZE_D, NI_TX_BUFFER_SIZE_Q     : std_logic_vector(31 downto 0);  --size (256*4)
     signal NI_TX_BUFFER_START_D, NI_TX_BUFFER_START_Q   : std_logic_vector(31 downto 0);   -- start index (where to write)
@@ -189,8 +196,6 @@ begin
     u_tx : tx port map(
         rst         => rst,
         clk         => clk,
-        CPU_addr    => CPU_addr_tx,
-        CPU_we      => CPU_we_tx,
         RAM_DATA    => data_ram_tx,
         RAM_RE      => re_ram_tx,
         RAM_ADDR    => addr_ram_tx,
@@ -199,19 +204,20 @@ begin
         NI_data     => data_ni_tx,
         NI_we       => we_ni_tx,
         NI_EOM      => eom_ni_tx,
+        RB_SIZE     => NI_TX_BUFFER_SIZE_Q,
+        WRITE       => NI_TX_BUFFER_START_Q,
+        READ        => NI_TX_BUFFER_END_D,
         irq         => irq_tx
     );
     
     u_rx: rx port map (
         CLK         => CLK,
         RESET       => rst,
-        CPU_addr    => CPU_addr_rx,
-        CPU_we      => CPU_we_rx,
         --ni_tx_data
         S_NOC_READY     => ready_ni_rx,
         S_NOC_VALID     => ack_ni_rx,
         S_NOC_DATA      => data_ni_rx,
-        S_NOC_WE        =>  we_ni_rx,
+        S_NOC_WE        => we_ni_rx,
         S_NOC_END_MSG   => eom_ni_rx,
         --irq to uC
         M_irq           => irq_rx,
@@ -220,9 +226,47 @@ begin
         M_IP_RE         => re_ram_rx,
         M_IP_ADDR       => addr_ram_rx,
         M_IP_DATA       => data_ram_rx,
-        M_IP_RB         => rb_ram_rx
+        M_IP_RB         => rb_ram_rx,
+        --Registres visibles à l'utilisateur
+        RB_SIZE         => NI_RX_BUFFER_SIZE_Q,
+        WRITE           => NI_RX_BUFFER_START_Q,
+        READ            => NI_RX_BUFFER_END_D
     );
+
+
+-----------------------------------------------------------------------------------------------------------
+    -- Gestion des signaux d'entré/sortie du NI
+    -- Ports pour la RAM
+    -- En tx
+    ram_we_tx       <= '0';
+    ram_re_tx       <= re_ram_tx;
+    data_ram_tx     <= ram_data_tx;
+    ram_addr_tx     <= conv_std_logic_vector(unsigned(addr_ram_tx) + unsigned(NI_TX_BUFFER_ADDR_Q),32) ;
+    -- En rx
+    ram_we_rx       <= we_ram_rx;
+    ram_re_rx       <= re_ram_rx;
+    rb_ram_rx       <= ram_data_in_rx;
+    ram_data_out_rx <= data_ram_rx;
+    ram_addr_rx     <= conv_std_logic_vector(unsigned(addr_ram_rx) + unsigned(NI_RX_BUFFER_ADDR_Q),32) ;
+    -- Ports pour l'autre NI
+    -- En tx
+    ack_ni_tx       <= NI_ack_tx;
+    NI_ready_tx     <= ready_ni_tx;
+    NI_data_tx      <= data_ni_tx;
+    NI_we_tx        <= we_ni_tx;
+    NI_eom_tx       <= eom_ni_tx;
+    -- En rx
+    NI_ack_rx       <= ack_ni_rx;
+    ready_ni_rx     <= NI_ready_rx;
+    data_ni_rx      <= NI_data_rx;
+    we_ni_rx        <= NI_we_rx;
+    eom_ni_rx        <= NI_eom_rx;
     
+    
+    -- Gestion des interruptions
+    NI_IRQ_CAUSE_D(0)   <= irq_rx;
+    NI_IRQ_CAUSE_D(1)   <= irq_tx;
+    irq                 <= (NI_IRQ_CAUSE_Q(0) and NI_IRQ_ENABLE_D(0)) or (NI_IRQ_CAUSE_Q(1) and NI_IRQ_ENABLE_D(1));
 
 -----------------------------------------------------------------------------------------------------------
     -- Process séquentiel du NI
@@ -246,7 +290,7 @@ begin
                 NI_TX_BUFFER_END_Q      <= (others => '0');
             
                 NI_IRQ_CAUSE_Q          <= (others => '0');
-                NI_IRQ_ENABLE_Q         <= (others => '0');
+                NI_IRQ_ENABLE_Q         <= (0 => '1', 1 => '1', others => '0');
                 NI_WHO_AM_I_Q           <= (others => '0');
                 NI_READY_Q              <= (others => '0');
             
@@ -298,7 +342,13 @@ begin
                 NI_HOST_IRQ_ENABLE_Q        <= NI_HOST_IRQ_ENABLE_D;
             end if ;
         end if ;
-    end process sync ;
+        
+                        
+    if falling_edge(rst) then
+        NI_READY_Q(0) <= '1';
+    end if;
+    
+    end process sync;
     
     
 -----------------------------------------------------------------------------------------------------------
@@ -373,7 +423,7 @@ begin
                         when X"00000010" =>
                             NI_RX_BUFFER_SIZE_D <= CPU_data;
                         when X"00000014" =>
-                            NI_RX_BUFFER_START_D <= CPU_data;
+                            -- Variable read only
                         when X"00000018" =>
                             NI_RX_BUFFER_END_D <= CPU_data;
                         when X"0000001c" =>
@@ -387,7 +437,7 @@ begin
                         when X"0000002c" =>
                             NI_TX_BUFFER_START_D <= CPU_data;
                         when X"00000030" =>
-                            NI_TX_BUFFER_END_D <= CPU_data;
+                            -- Variable read only
                         when X"00000034" =>
                             NI_IRQ_CAUSE_D <= CPU_data;
                         when X"00000038" =>
@@ -395,7 +445,7 @@ begin
                         when X"0000003c" =>
                             NI_WHO_AM_I_D <= CPU_data;
                         when X"00000040" =>
-                            NI_READY_D <= CPU_data;
+                            -- Variable read only NI_READY_D 
                         when X"00000044" =>
                             NI_HOST_RX_BUFFER_ADDR_D <= CPU_data;
                         when X"00000048" =>

@@ -39,17 +39,22 @@ end bench_tx;
 
 architecture Behavioral of bench_tx is
     component tx port(
-        CPU_addr     : in STD_LOGIC_VECTOR (31 downto 0);
-        CPU_we       : in STD_LOGIC;
-        rst          : in STD_LOGIC;
-        clk          : in STD_LOGIC;
-        RAM_DATA     : in STD_LOGIC_VECTOR (31 downto 0);
+        rst          : in  STD_LOGIC;
+        clk          : in  STD_LOGIC;
+        -- Signaux de la RAM
+        RAM_DATA     : in  STD_LOGIC_VECTOR (31 downto 0);
         RAM_RE       : out STD_LOGIC;
         RAM_ADDR     : out STD_LOGIC_VECTOR (31 downto 0);
-        NI_ack       : in STD_LOGIC;
+        -- Signaux communquant avec l'autre ni
+        NI_ack       : in  STD_LOGIC;
         NI_ready     : out STD_LOGIC;
         NI_data      : out STD_LOGIC_VECTOR (31 downto 0);
         NI_we        : out STD_LOGIC;
+        NI_eom       : out STD_LOGIC;
+        -- Signaux gérer par le CPU
+        RB_SIZE      : in  STD_LOGIC_VECTOR (31 downto 0);
+        WRITE        : in  STD_LOGIC_VECTOR (31 downto 0);
+        READ         : out STD_LOGIC_VECTOR (31 downto 0);
         irq          : out STD_LOGIC
     );
     end component;
@@ -73,8 +78,9 @@ architecture Behavioral of bench_tx is
     --signaux genere par le bench
     signal clk          : std_logic := '0';
     signal rst          : std_logic := '0';
-    signal CPU_addr     : std_logic_vector(31 downto 0) := (others => '0');
-    signal CPU_we       : STD_LOGIC := '0';
+    signal rb_size      : STD_LOGIC_VECTOR (31 downto 0);
+    signal write        : STD_LOGIC_VECTOR (31 downto 0);
+    signal read         : STD_LOGIC_VECTOR (31 downto 0);
     
     signal din_ram      : std_logic_vector(31 downto 0) := (others => '0');
     signal din_ram_B    : std_logic_vector(31 downto 0) := (others => '0');
@@ -105,8 +111,6 @@ architecture Behavioral of bench_tx is
     
 begin
     u1 : tx port map(
-        CPU_addr    => CPU_addr,
-        CPU_we      => CPU_we,
         rst         => rst,
         clk         => clk,
         RAM_DATA    => data_ram,
@@ -116,6 +120,9 @@ begin
         NI_ready    => ready_ni,
         NI_data     => data_ni,
         NI_we       => we_ni,
+        RB_SIZE     => rb_size,
+        WRITE       => write,
+        READ        => read,
         irq         => irq_tx
     );
     
@@ -136,6 +143,8 @@ begin
 
     CLK <= not(CLK) after clk_demi_period; -- periode 10 ns
     Rst <= '1', '0' after 50 ns;
+    rb_size <= X"00000008";
+    write   <= (0=> ram_fill, others => '0');
 
 -----------------------------------------------------------------------------------------------------------
     -- Processus qui remplit la memoire
@@ -187,22 +196,6 @@ begin
         end loop;
         -- On previent les autres processus que la ram est remplie : on peut commençer la simulation
         ram_fill <= '1';
-        -- On arrete le processus
-        wait on rst;
-    end process;
-
-
------------------------------------------------------------------------------------------------------------
-    -- Processus qui lance la simu : on effectue l'action du CPU
-    start : process
-    begin
-        wait on ram_fill;
-        -- On fait bugger le NI en lui donnant une valeur que le CPU n'est pas cense donner
-        -- De cette maniere le NI transmet indéfiniment les donnees
-        CPU_we <= '1';
-        CPU_addr <= X"00000001";
-        wait for clk_period;
-        CPU_we <= '0';
         -- On arrete le processus
         wait on rst;
     end process;
