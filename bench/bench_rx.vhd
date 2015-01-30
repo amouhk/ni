@@ -60,8 +60,8 @@ architecture Behavioral of bench_rx is
         );
     end component;
     
-    component RAM
-        generic( MEM_SIZE : integer := 9000 );
+    component MEM_RAM
+        --generic( MEM_SIZE : integer := 9000 );
         Port ( 
             CLK     : in  STD_LOGIC;
             RESET   : in  STD_LOGIC;
@@ -83,14 +83,10 @@ architecture Behavioral of bench_rx is
     
     signal CLK     :  std_logic := '0';
     signal RESET   :  std_logic;
-    
-    ---
-    
-    
     --ni_tx_data
     signal S_NOC_READY      :  std_logic := '0';
     signal S_NOC_VALID      :  std_logic;
-    signal S_NOC_DATA       :  std_logic_vector(31 downto 0) := (others => 'X');
+    signal S_NOC_DATA       :  std_logic_vector(31 downto 0) := (others => '0');
     signal S_NOC_WE         :  std_logic := '0'; -- indique le debut et la fin d'une transaction
     signal S_NOC_END_MSG    :  std_logic := '0';
     --irq to uC
@@ -106,12 +102,16 @@ architecture Behavioral of bench_rx is
     signal READ       :  std_logic_vector(31 downto 0):= (others => '0');
     signal WRITE      :  std_logic_vector(31 downto 0):= (others => '0');
      
-            
-    constant clk_period : time := 5 ns;
-    
+    signal we_ram     : std_logic := '0';   
+    signal addr_ram   : std_logic_vector(31 downto 0):= (others => '0');   
+    signal data_ram   : std_logic_vector(31 downto 0):= (others => '0');
+    signal ram_fill_ok: std_logic := '0';
+       
+    constant clk_demi_period : time := 5 ns;
+    signal test_i : integer range 0 to 10 := 10;
 begin
-u_ram: RAM
-    generic map (MEM_SIZE => 9000)
+u_ram: MEM_RAM
+    --generic map (MEM_SIZE => 9000)
     port map(
         CLK     => CLK, 
         RESET   => RESET,
@@ -122,10 +122,10 @@ u_ram: RAM
         din     => M_IP_DATA,
         dout    => M_IP_RB,
         --port 2
-        we_B    => '0',
+        we_B    => we_ram,
         re_B    => '0',
-        addr_B  => (others => '0'),
-        din_B   => (others => '0'),
+        addr_B  => addr_ram,
+        din_B   => data_ram,
         dout_B  => open
         
     );
@@ -154,41 +154,169 @@ u_rx: rx
         READ        => READ
     );
 
-    CLK <= not(CLK) after clk_period;
+    CLK <= not(CLK) after clk_demi_period;
+    RESET <=  '1', '0' after 10*clk_demi_period;
+
+
+-------------------------------------------------------------------------
+--Remplissage du rb (address)
+-------------------------------------------------------------------------
+fill_ram: process
+begin
+    wait until RESET = '0' and RESET'event;
+    -- On remplit le RB addresse
+    -- data_ram commence à 128 au lieu de 64
+    for i in 0 to 7 loop
+        we_ram <= '1';
+        data_ram <= conv_std_logic_vector(128 + (1024 * i), 32);
+        addr_ram <= conv_std_logic_vector(8*i + 4, 32);
+        wait for clk_demi_period;
+        
+        we_ram <= '0';
+        wait for clk_demi_period;
+    end loop;
+    --fin du remplissage
+    we_ram <= '0';
+    data_ram <= (others => '0');
+    addr_ram <= (others => '0');
+    ram_fill_ok <= '1';
+    -- arret du process
+    wait on RESET;
+end process fill_ram;
+
+-----------------------------------------------------------------------
+--Choix de Test i
+-----------------------------------------------------------------------
+p_test_i: process
+begin
+    wait until RESET'event and RESET = '0';
+    wait for 80*clk_demi_period;
+    test_i <= 0;
+    wait until M_irq'event and M_irq = '1';
+    wait for 65*clk_demi_period;
+    test_i <= test_i + 1;
+    wait until M_irq'event and M_irq = '1';
+    wait for 35*clk_demi_period;
+    test_i <= test_i + 1;
+    wait until M_irq'event and M_irq = '1';
+    wait for 25*clk_demi_period;
+    test_i <= test_i + 1;
     
-    RESET <=  '1', '0' after 13*clk_period;
-    
+    wait on RESET;
+end process p_test_i;
 -------------------------------------------------------------------------
 --Process de simulation du NI_TX
+-------------------------------------------------------------------------
 p_ready: process
-begin
-    --for i in 1 to 2 loop
-        wait for 20*clk_period;
-        S_NOC_READY <= '1';
-        wait for 4*clk_period;
-        S_NOC_READY <= '0';
-        wait for 76*clk_period;
-   --end loop;
---    wait on RESET;
+begin      
+    wait for 100*clk_demi_period;
+    S_NOC_READY <= '1';
+    wait for 4*clk_demi_period;
+    S_NOC_READY <= '0';
 end process;
+-----------------------------------------------------------------------
+--Simulation des data venant de la fifo_tx
+-----------------------------------------------------------------------
+p_fifo_tx: process
+    variable j : integer := 0;
+begin
+    wait until S_NOC_VALID = '1';
+    for i in 0 to 150 loop
+        case test_i is -- state est la variable du choix
+            when 0 => -- remplir un portion de fifo puis end_msg
+                if i >= 6 then 
+                    S_NOC_DATA <= (others => '1');
+                    S_NOC_WE <= '0';
+                    S_NOC_END_MSG <= '0';
+                    
+                else
+                    S_NOC_DATA <= conv_std_logic_vector(i, 32);
+                    S_NOC_WE <= '1';
+                    if i = 5 then S_NOC_END_MSG <= '1'; end if;
+                    wait for 2*clk_demi_period;
+                end if;
+                
+            when 1 => -- 16mots(fifo entiere) puis end_msg
+                if i >= 16 then 
+                    S_NOC_DATA <= (others => '1');
+                    S_NOC_WE <= '0';
+                    S_NOC_END_MSG <= '0';
+                else
+                    S_NOC_DATA <= conv_std_logic_vector(i, 32);
+                    S_NOC_WE <= '1';
+                    if i = 15 then S_NOC_END_MSG <= '1'; end if;
+                    wait for 2*clk_demi_period;
+                end if;
+            
+            when 2 => -- 256mots puis end_msg
+                loop
+                    if j = 16 then
+                        S_NOC_WE <= '0';
+                        j := 0;
+                        S_NOC_END_MSG <= '0';
+                        wait for 74*clk_demi_period;
+                    else
+                        S_NOC_DATA <= conv_std_logic_vector(j, 32);
+                        S_NOC_WE <= '1';
+                        wait for 2*clk_demi_period;
+                        j := j+1;
+                        if i = 15 then S_NOC_END_MSG <= '1'; end if;
+                    end if;
+                    --j := j+1;
+                end loop;
+            when 3 => -- 256mots puis end_msg
+                null;
+            when others => null;    
+        end case;
+    end loop;
+    S_NOC_WE <= '0';
+end process p_fifo_tx;
+            
+--            when 2 => -- 256mots puis end_msg
+            
+--                for j in 0 to 15 loop
+--                    S_NOC_DATA <= conv_std_logic_vector(i*j+j, 32);
+--                    S_NOC_WE <= '1';
+--                    wait for 2*clk_demi_period;
+--                    if i = 15 then
+--                        if j=14 then 
+--                           S_NOC_END_MSG <= '1'; 
+--                        else
+--                            S_NOC_END_MSG <= '0'; 
+--                        end if;
+--                    end if;
+--                end loop;
+
+--                S_NOC_WE <= '0';
+--                wait for 64*clk_demi_period;
+----            when 3 =>
+            
+----            when 3 =>
+            
+----            when 3 =>
+                
 -----------------------------------------------------------------------
 --Process de simulation du NI_TX
---le message se trouve dans une seule barette de 16 mots 
-long_msg_test: process 
-begin 
-    --for j in 1 to 144 loop
-        wait until S_NOC_VALID = '1';   
-        for i in 0 to 15 loop
-            S_NOC_DATA <= conv_std_logic_vector(i, 32);
-            S_NOC_WE <= '1';
-            wait for 2*clk_period;
-        end loop;
+--le message se trouve dans une seule barette de 16 mots
+-------------------------------------------------------------------------
+--long_msg_test: process 
+--begin 
+--    --for j in 1 to 144 loop
+--        wait until S_NOC_VALID = '1';   
+--        for i in 0 to 15 loop
+--            S_NOC_DATA <= conv_std_logic_vector(i, 32);
+--            S_NOC_WE <= '1';
+--            wait for 2*clk_demi_period;
+--        end loop;
         
-        S_NOC_WE <= '0';
-        wait for 42*clk_period;
-    --end loop;
-end process;
------------------------------------------------------------------------
+--        S_NOC_WE <= '0';
+--        wait for 42*clk_demi_period;
+--    --end loop;
+--end process;            
+
+
+
+
 --ajout de end_of_msg en milieu d'un barette
 --end_msg_test: process 
 --begin 
@@ -203,11 +331,11 @@ end process;
 --            end if;
 --            S_NOC_DATA <= conv_std_logic_vector(i, 32);
 --            S_NOC_WE <= '1';
---            wait for 2*clk_period;
+--            wait for 2*clk_demi_period;
 --        end loop;
         
 --        S_NOC_WE <= '0';
---        wait for 42*clk_period;
+--        wait for 42*clk_demi_period;
 --   end loop;
 --end process;
 -----------------------------------------------------------------------
@@ -224,12 +352,14 @@ end process;
 --            end if;
 --            S_NOC_DATA <= conv_std_logic_vector(i, 32);
 --            S_NOC_WE <= '1';
---            wait for 2*clk_period;
+--            wait for 2*clk_demi_period;
 --        end loop;
         
 --        S_NOC_WE <= '0';
---        wait for 42*clk_period;
+--        wait for 42*clk_demi_period;
 --end process;
+-----------------------------------------------------------------------
+-- Simulation du cpu
 -----------------------------------------------------------------------
 cpu_write_process: process
 begin 
