@@ -387,6 +387,8 @@ begin
                             when others =>
                                 -- On sort de la zone autorisée
                         end case;
+                    else
+                        CPU_data_out <= (others => '0');
                     end if;
                 end if;
             end if;

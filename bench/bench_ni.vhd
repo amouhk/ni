@@ -103,12 +103,12 @@ architecture Behavioral of bench_ni is
         signal rst             : STD_LOGIC := '1';
         --PORT NI 1
         -- Ports du CPU
-        signal cpu_addr        : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data_in     : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data_out    : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_we          : STD_LOGIC;
-        signal cpu_re          : STD_LOGIC;
-        signal irq             : STD_LOGIC;
+        signal cpu_addr        : STD_LOGIC_VECTOR (31 downto 0);-- := (others => '0');
+        signal cpu_data_in     : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_data_out    : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_we          : STD_LOGIC := '0';
+        signal cpu_re          : STD_LOGIC := '0';
+        signal irq             : STD_LOGIC := '0';
         -- Ports pour la RAM
         -- En tx
         signal ram_we_tx       : STD_LOGIC;
@@ -138,12 +138,12 @@ architecture Behavioral of bench_ni is
         
         --PORT du NI 2
         -- Ports du CPU
-        signal cpu_addr2        : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data2_in     : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data2_out    : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_we2          : STD_LOGIC;
-        signal cpu_re2          : STD_LOGIC;
-        signal irq2             : STD_LOGIC;
+        signal cpu_addr2        : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_data2_in     : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_data2_out    : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_we2          : STD_LOGIC := '0';
+        signal cpu_re2          : STD_LOGIC := '0';
+        signal irq2             : STD_LOGIC := '0';
         -- Ports pour la RAM
         -- En tx
         signal ram_we_tx2       : STD_LOGIC;
@@ -339,23 +339,23 @@ rst <= '1', '0' after 13*clk_demi_period;
 --TRAITEMEMT DES IRQ
 -----------------------------------------------------------------------------------------
 --NI 1
-p_cpu1: process(clk, rst, irq)
-begin
-    if rising_edge(irq) then
-        -- lecture du registre irq
-        cpu_re   <= '1';
-        cpu_addr <= X"00000034";
-        --assert cpu_data = "00000000000000000000000000000000" report 
-        --report cpu_data;
-    end if;
-end process p_cpu1;
+--p_cpu1: process(clk, rst, irq)
+--begin
+--    if rising_edge(irq) then
+--        -- lecture du registre irq
+--        cpu_re   <= '1';
+--        cpu_addr <= X"00000034";
+--        --assert cpu_data = "00000000000000000000000000000000" report 
+--        --report cpu_data;
+--    end if;
+--end process p_cpu1;
 
 
---NI 2
-p_cpu2: process
-begin
-    wait for 10 ns;
-end process p_cpu2;
+----NI 2
+--p_cpu2: process
+--begin
+--    wait for 10 ns;
+--end process p_cpu2;
 
 
 ----------------------------------------------------------------------------------------
