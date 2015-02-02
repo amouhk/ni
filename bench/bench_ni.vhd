@@ -103,12 +103,12 @@ architecture Behavioral of bench_ni is
         signal rst             : STD_LOGIC := '1';
         --PORT NI 1
         -- Ports du CPU
-        signal cpu_addr        : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data_in     : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data_out    : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_we          : STD_LOGIC;
-        signal cpu_re          : STD_LOGIC;
-        signal irq             : STD_LOGIC;
+        signal cpu_addr        : STD_LOGIC_VECTOR (31 downto 0);-- := (others => '0');
+        signal cpu_data_in     : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_data_out    : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_we          : STD_LOGIC := '0';
+        signal cpu_re          : STD_LOGIC := '0';
+        signal irq             : STD_LOGIC := '0';
         -- Ports pour la RAM
         -- En tx
         signal ram_we_tx       : STD_LOGIC;
@@ -138,12 +138,12 @@ architecture Behavioral of bench_ni is
         
         --PORT du NI 2
         -- Ports du CPU
-        signal cpu_addr2        : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data2_in     : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_data2_out    : STD_LOGIC_VECTOR (31 downto 0);
-        signal cpu_we2          : STD_LOGIC;
-        signal cpu_re2          : STD_LOGIC;
-        signal irq2             : STD_LOGIC;
+        signal cpu_addr2        : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_data2_in     : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_data2_out    : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
+        signal cpu_we2          : STD_LOGIC := '0';
+        signal cpu_re2          : STD_LOGIC := '0';
+        signal irq2             : STD_LOGIC := '0';
         -- Ports pour la RAM
         -- En tx
         signal ram_we_tx2       : STD_LOGIC;
@@ -164,12 +164,16 @@ architecture Behavioral of bench_ni is
         signal re_ram_B         : STD_LOGIC := '0';
         signal din_ram_B        : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
         signal addr_ram_B       : STD_LOGIC_VECTOR (31 downto 0);
-        signal ram_fill         : STD_LOGIC := '0';
         
         -- signaux ram rx
         signal we_ram_rx         : STD_LOGIC := '0';
         signal din_ram_rx        : STD_LOGIC_VECTOR (31 downto 0) := (others => '0');
         signal addr_ram_rx       : STD_LOGIC_VECTOR (31 downto 0);
+        
+        -- signaux de synchronisation généré par le bench
+        signal ram_fill         : STD_LOGIC := '0';
+        signal relaunch_tx      : std_logic := '0';
+        signal relaunch_rx      : std_logic := '0';
 
 begin
 --------------------------------------------------------------------------
@@ -223,8 +227,8 @@ du_ram_rx_1: MEM_RAM
         we      => ram_we_rx,
         re      => ram_re_rx,
         addr    => ram_addr_rx,
-        din     => ram_data_in_rx,
-        dout    => ram_data_out_rx,
+        din     => ram_data_out_rx,
+        dout    => ram_data_in_rx,
         --port 2
         we_B    => '0',
         re_B    => '0',
@@ -274,8 +278,8 @@ dut_ni_2: ni
         -- En rx
         ram_we_rx       => ram_we_rx2,
         ram_re_rx       => ram_re_rx2,
-        ram_data_in_rx  => ram_data_in_rx2,
-        ram_data_out_rx => ram_data_out_rx2,
+        ram_data_in_rx  => ram_data_out_rx2,
+        ram_data_out_rx => ram_data_in_rx2,
         ram_addr_rx     => ram_addr_rx2,
         -- Ports pour l'autre NI on inverse le tx et le rx
         -- En tx
@@ -334,29 +338,8 @@ du_ram_tx_2: MEM_RAM
    
 clk <= not(clk) after clk_demi_period;
 rst <= '1', '0' after 13*clk_demi_period;
-
------------------------------------------------------------------------------------------
---TRAITEMEMT DES IRQ
------------------------------------------------------------------------------------------
---NI 1
-p_cpu1: process(clk, rst, irq)
-begin
-    if rising_edge(irq) then
-        -- lecture du registre irq
-        cpu_re   <= '1';
-        cpu_addr <= X"00000034";
-        --assert cpu_data = "00000000000000000000000000000000" report 
-        --report cpu_data;
-    end if;
-end process p_cpu1;
-
-
---NI 2
-p_cpu2: process
-begin
-    wait for 10 ns;
-end process p_cpu2;
-
+relaunch_tx <= '0', '1' after 70 us;
+relaunch_rx <= '0', '1' after 120 us;
 
 ----------------------------------------------------------------------------------------
 --SIMULATION DU CPU 1
@@ -434,19 +417,49 @@ end process;
 
 ----------------------------------------------------------------------------------------
 --INITIALISATION DU WRITE DU RB
+-- Et TRAITEMEMT DES IRQ TX
 -----------------------------------------------------------------------------------------
-p_init: process
+p_init: process(ram_fill, irq, relaunch_tx, relaunch_rx)
 begin
-    wait on ram_fill;
-    cpu_we <= '1' ;
-    cpu_data_in <= X"00000028";
-    cpu_addr <= X"0000002c";
-    wait for 2*clk_demi_period;
-    cpu_we <= '0';
-    cpu_data_in <= (others => '0');
-    cpu_addr <= (others => '0');
-    -- arret du process
-    wait on rst;
+    if rising_edge(ram_fill) then
+        cpu_we <= '1', '0' after 3*clk_demi_period;
+        cpu_data_in <= X"00000028" , (others => '0') after 3*clk_demi_period;
+        cpu_addr <= X"0000002c", (others => '0') after 3*clk_demi_period;
+    end if;
+    
+    if rising_edge(irq) then
+        -- On remet l'irq à 0
+        cpu_we <= '1', '0' after 3*clk_demi_period ;
+        cpu_addr <= X"00000034", (others =>'0') after 3*clk_demi_period;
+        cpu_data_in <= (others => '0');
+    end if;
+    
+    if rising_edge(relaunch_tx) then
+        cpu_we <= '1', '0' after 3*clk_demi_period ;
+        cpu_addr <= X"0000002c", (others =>'0') after 3*clk_demi_period;
+        cpu_data_in <= X"00000010", (others => '0') after 3*clk_demi_period;
+    end if;    
 end process p_init;
      
+     
+-----------------------------------------------------------------------------------------
+-- Traitement des irq RX
+-----------------------------------------------------------------------------------------
+
+--NI 2
+p_cpu2: process(irq2, relaunch_rx)
+begin
+    if rising_edge(irq2) then
+        cpu_we2 <= '1', '0' after 3*clk_demi_period ;
+        cpu_addr2 <= X"00000034", (others =>'0') after 3*clk_demi_period;
+        cpu_data2_in <= (others => '0');
+    end if;
+    
+    if rising_edge(relaunch_rx) then
+        cpu_we2 <= '1', '0' after 3*clk_demi_period ;
+        cpu_addr2 <= X"00000018", (others =>'0') after 3*clk_demi_period;
+        cpu_data2_in <= X"00000008", (others => '0') after 3*clk_demi_period;
+    end if;
+end process p_cpu2;
+
 end Behavioral;

@@ -344,8 +344,12 @@ begin
                             -- On sort de la zone autorisée
                         end case;
                     else
-                        registres(13)(0)    <= irq_rx;
-                        registres(13)(1)    <= irq_tx;
+                        if(irq_rx = '1') then
+                            registres(13)(0)    <= irq_rx;
+                        end if;
+                        if(irq_tx = '1') then
+                            registres(13)(1)    <= irq_tx;
+                        end if;
                     end if;
                     
                     if(CPU_re = '1') then
@@ -387,6 +391,8 @@ begin
                             when others =>
                                 -- On sort de la zone autorisée
                         end case;
+                    else
+                        CPU_data_out <= (others => '0');
                     end if;
                 end if;
             end if;
