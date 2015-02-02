@@ -163,6 +163,13 @@ begin
     M_IP_ADDR               <= (others => '0');
     M_IP_DATA               <= (others => '0');
     rd_en                   <= '0';
+	
+	
+	if unsigned(descript_write_q) = unsigned(descript_read_q xor DESC_SIZE) then
+		ram_full_d              <= ram_full_q;
+	else
+		ram_full_d              <= '0';
+	end if;
     --multiplication du rb_size par 8 size*8
     DESC_SIZE               := RB_SIZE(28 downto 0) & "000";
     -- (size*8)*2 - 1
