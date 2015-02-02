@@ -172,8 +172,8 @@ architecture Behavioral of bench_ni is
         
         -- signaux de synchronisation généré par le bench
         signal ram_fill         : STD_LOGIC := '0';
+        signal ram_fill2        : STD_LOGIC := '0';
         signal relaunch_tx      : std_logic := '0';
-        signal relaunch_rx      : std_logic := '0';
 
 begin
 --------------------------------------------------------------------------
@@ -339,7 +339,6 @@ du_ram_tx_2: MEM_RAM
 clk <= not(clk) after clk_demi_period;
 rst <= '1', '0' after 13*clk_demi_period;
 relaunch_tx <= '0', '1' after 70 us;
-relaunch_rx <= '0', '1' after 120 us;
 
 ----------------------------------------------------------------------------------------
 --SIMULATION DU CPU 1
@@ -394,9 +393,54 @@ begin
     -- On previent les autres processus que la ram est remplie : on peut commençer la simulation
     ram_fill <= '1';
     -- On arrete le processus    
-    wait on rst;
+    wait for 100 us;
+        -- On remplit le RB
+        for i in 0 to 2 loop
+            we_ram_B <= '1';
+            -- On fait plusieurs tests different histoir de couvrir tout les cas
+            case i is
+                when 0 =>
+                    din_ram_B <= X"80350100"; -- size = 53, size_max = 256, eom = '1'
+                when 1 =>
+                    din_ram_B <= X"01000100"; -- size = size_max = 256, eom = '0'
+                when 2 =>
+                    din_ram_B <= X"80001100"; -- size = 1, size_max = 256, eom = '1'
+                when others =>
+                    -- A priori ce cas n'existe pas
+            end case;
+            addr_ram_B <= conv_std_logic_vector(8*i,32);
+            wait for 2*clk_demi_period;
+            
+            we_ram_B <= '0';
+            wait for 2*clk_demi_period;
+        end loop;
+        
+        -- On remplit la memoire : pour le premier mot on met 0001 0001, le deuxième 0002 0002, etc ...
+        -- On remplit les huits "barretes" de la memoire
+        for i in 0 to 2 loop
+            -- Chaque "barretes" contenent 256 mots de 4 octets
+            for j in 0 to 255 loop
+                we_ram_B <= '1';
+                din_ram_B <= conv_std_logic_vector(i*256 + j, 16) & conv_std_logic_vector(i*256 + j, 16);
+                addr_ram_B <= conv_std_logic_vector(128 + 1024*i + 4*j, 32);
+                wait for 2*clk_demi_period;
+                we_ram_B <= '0';
+            end loop;  
+        end loop;
+        -- On previent les autres processus que la ram est remplie : on peut commençer la simulation
+        ram_fill2 <= '1';
+        -- On arrete le processus    
+        wait on rst;
 end process fill_ram_tx;
 
+
+-----------------------------------------------------------------------------------------
+-- Deuxième remplissage de la RAM
+-- On remplit une autre fois la RAM après la première transition
+--fill_ram_tx2: process
+--begin
+    
+--end process fill_ram_tx2;
 
 -----------------------------------------------------------------------------------------
 -- Process de remplissage du RB (addr) pour la memoire rx
@@ -419,7 +463,7 @@ end process;
 --INITIALISATION DU WRITE DU RB
 -- Et TRAITEMEMT DES IRQ TX
 -----------------------------------------------------------------------------------------
-p_init: process(ram_fill, irq, relaunch_tx, relaunch_rx)
+p_init: process(ram_fill, irq, relaunch_tx)
 begin
     if rising_edge(ram_fill) then
         cpu_we <= '1', '0' after 3*clk_demi_period;
@@ -447,7 +491,7 @@ end process p_init;
 -----------------------------------------------------------------------------------------
 
 --NI 2
-p_cpu2: process(irq2, relaunch_rx)
+p_cpu2: process(irq2, ram_fill2)
 begin
     if rising_edge(irq2) then
         cpu_we2 <= '1', '0' after 3*clk_demi_period ;
@@ -455,10 +499,10 @@ begin
         cpu_data2_in <= (others => '0');
     end if;
     
-    if rising_edge(relaunch_rx) then
+    if rising_edge(ram_fill2) then
         cpu_we2 <= '1', '0' after 3*clk_demi_period ;
         cpu_addr2 <= X"00000018", (others =>'0') after 3*clk_demi_period;
-        cpu_data2_in <= X"00000008", (others => '0') after 3*clk_demi_period;
+        cpu_data2_in <= X"00000018", (others => '0') after 3*clk_demi_period;
     end if;
 end process p_cpu2;
 

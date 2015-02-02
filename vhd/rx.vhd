@@ -223,7 +223,6 @@ begin
                 ram_full_d <= '0';
             else
                 ram_full_d <= '1';
-                etat_d <= S_wait_request;
             end if;
             --irq
             
