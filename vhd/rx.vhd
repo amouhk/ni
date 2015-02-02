@@ -87,7 +87,6 @@ architecture Behavioral of rx is
     signal fifo_out     : std_logic_vector(31 downto 0);
     signal full, empty  : std_logic;
     signal rd_en        : std_logic;
-    --signaux irq TODO
     
     --Declare constants
     constant BUFFER_SIZE        : integer := 1024;  --4*256
