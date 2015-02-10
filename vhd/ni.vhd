@@ -128,14 +128,14 @@ architecture Behavioral of ni is
 --    (1) NI_RX_FIFO_STATUS     Number of items into the fifo, read only
 --    (2) NI_RX_FIFO_SIZE       Number of slots of the fifo, a read only constant
 --    (3) NI_RX_BUFFER_ADDR     Ring buffer address
---    (4) NI_RX_BUFFER_SIZE     size (256*4)
+--    (4) NI_RX_BUFFER_SIZE     size (8)
 --    (5) NI_RX_BUFFER_START    start index (where to write)
 --    (6) NI_RX_BUFFER_END      end index (where to read)
 
 --    (7) NI_TX_FIFO_STATUS
 --    (8) NI_TX_FIFO_SIZE
 --    (9) NI_TX_BUFFER_ADDR     Ring buffer address
---    (10) NI_TX_BUFFER_SIZE    size (256*4)
+--    (10) NI_TX_BUFFER_SIZE    size (8)
 --    (11) NI_TX_BUFFER_START   start index (where to write)
 --    (12) NI_TX_BUFFER_END     end index (where to read)
 
