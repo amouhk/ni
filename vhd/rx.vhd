@@ -138,7 +138,8 @@ P_COMB: process(Etat_q,
                 fifo_out, full, empty, READ, RB_SIZE)
     
     variable DESC_SIZE    : std_logic_vector(31 downto 0);
-    variable mask         : std_logic_vector(31 downto 0);          
+    variable mask         : std_logic_vector(31 downto 0);
+    variable compteur     : std_logic_vector(31 downto 0);          
 
 begin
     --initalisation des siganux (affectation par defaut)
@@ -253,11 +254,12 @@ begin
                 end_msg_d           <= '0';         
                 offset_d            <= (others => '0');
                 nb_mots_ecrits_d    <= (others => '0');
+                compteur := "00" & nb_mots_ecrits_q(29 downto 0);
                 if end_msg_q = '1' then
-                    M_IP_DATA <= X"8100" & nb_mots_ecrits_q(15 downto 0);
+                    M_IP_DATA <= '1' &compteur(14 downto 0) & X"0100";
                     M_irq <= '1';
                 else
-                    M_IP_DATA <= X"0100" & nb_mots_ecrits_q(15 downto 0);
+                    M_IP_DATA <= compteur(15 downto 0) & X"0100";
                 end if;
             end if;
                 

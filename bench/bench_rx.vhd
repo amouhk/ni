@@ -306,7 +306,7 @@ end process p_fifo_tx;
 cpu_write_process: process
 begin 
     for k in 1 to 8 loop
-    wait for 100 us;
+    wait for 60 us;
         READ <= conv_std_logic_vector(k*8, 32);
         
     end loop;
