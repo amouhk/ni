@@ -37,10 +37,10 @@ entity bench_fifo is
 end bench_fifo;
 
 architecture Behavioral of bench_fifo is
-component fifo_rx
+component fifo
        PORT (
         clk : IN STD_LOGIC;
-        rst : IN STD_LOGIC;
+        srst : IN STD_LOGIC;
         din : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
         wr_en : IN STD_LOGIC;
         rd_en : IN STD_LOGIC;
@@ -62,10 +62,10 @@ component fifo_rx
         
         constant clk_period : time := 5 ns;
 begin
-    dut: fifo_rx 
+    dut: fifo 
     port map(
         clk  => clk,
-        rst  => rst,
+        srst  => rst,
         din  => din,
         dout => dout,
         wr_en => wr_en,
@@ -94,29 +94,5 @@ begin
 
     
 end process;
---write_in_fifo: process
---begin 
---    wait until rst'event and rst ='0';
---    wait until full = '0';
---    --wait for 20 ns;
---    wr_en <= '1';
---    for i in 1 to 17 loop
---        din   <= std_logic_vector(to_unsigned(i, 32));
---        wait for 20 ns;
---    end loop;
---    wr_en <= '0';
---    din <= (others => '0');
---end process;
-
---read_in_fifo: process
---begin 
---    wait until wr_en'event and wr_en = '0';
---    wait for 50 ns;
---    rd_en <= '1';
---    for i in 1 to 17 loop
---        wait for 20 ns;
---    end loop; 
---    rd_en <= '0';    
---end process;
 
 end Behavioral;

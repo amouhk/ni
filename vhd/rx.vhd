@@ -57,7 +57,7 @@ end rx;
 
 architecture Behavioral of rx is
 
-    component fifo_rx 
+    component fifo 
         PORT (
             clk     : IN STD_LOGIC;
             srst    : IN STD_LOGIC;
@@ -94,7 +94,7 @@ architecture Behavioral of rx is
     
 begin
 
-U_RX_FIFO: fifo_rx 
+U_RX_FIFO: fifo 
     port map (
         clk     => CLK,
         srst    => RESET,
@@ -189,7 +189,7 @@ begin
             etat_d                  <= S_wait_request;
             
         when S_wait_request =>
-            --attente de reception de debut de transfert fifo_tx -> fifo_rx
+            --attente de reception de debut de transfert fifo_tx -> fifo
             --le TX est pret a envoye des data
             if S_NOC_READY = '1' and ram_full_q = '0' then
                 S_NOC_VALID <= '1';

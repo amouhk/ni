@@ -56,7 +56,7 @@ entity tx is
 end tx;
 
 architecture Behavioral of tx is
-    component fifo_tx 
+    component fifo 
 PORT (
         clk    : IN STD_LOGIC;
         srst    : IN STD_LOGIC;
@@ -90,7 +90,7 @@ end component;
     signal nb_mot_restant_q, nb_mot_restant_d       : std_logic_vector(15 downto 0);
     
 begin
-    U1 : fifo_tx port map(
+    U1 : fifo port map(
         clk     =>  clk,
         srst    =>  rst,
         din     =>  fifo_in,
